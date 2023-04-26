@@ -18,6 +18,19 @@ spec:
         app.kubernetes.io/name: {{ include "local-ai.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      initContainers:
+        - name: download-model
+          image: busybox
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              url="{{.Values.model.url}}"
+              if [[ ! -f "models/${url##*/}" ]]; then
+                wget {{ .Values.model.url }} -P /models
+              fi
+          volumeMounts:
+          - mountPath: {{ .Values.deployment.env.modelsPath }}
+            name: models
       containers:
         - name: {{ template "local-ai.fullname" . }}
           image: {{ .Values.deployment.image }}
@@ -28,7 +41,6 @@ spec:
             value: {{ .Values.deployment.env.contextSize | quote }}
           - name: MODELS_PATH
             value: {{ .Values.deployment.env.modelsPath }}
-{{- if .Values.deployment.volume.enabled }}
           volumeMounts:
           - mountPath: {{ .Values.deployment.env.modelsPath }}
             name: models
@@ -36,4 +48,3 @@ spec:
       - name: models
         persistentVolumeClaim:
           claimName: {{ template "local-ai.fullname" . }}
-{{- end }}
