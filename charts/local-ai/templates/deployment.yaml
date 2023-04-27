@@ -18,19 +18,21 @@ spec:
         app.kubernetes.io/name: {{ include "local-ai.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      {{- if .Values.modelsVolume.enabled }}
       initContainers:
         - name: download-model
           image: busybox
           command: ["/bin/sh", "-c"]
           args:
             - |
-              url="{{.Values.model.url}}"
-              if [[ ! -f "models/${url##*/}" ]]; then
-                wget {{ .Values.model.url }} -P /models
+              url={{ .Values.modelsVolume.url | quote }}
+              if [[ ! -f "{{ .Values.deployment.env.modelsPath }}/${url##*/}" ]]; then
+                wget {{ .Values.modelsVolume.url }} -P {{ .Values.deployment.env.modelsPath }} {{ if .Values.modelsVolume.auth.basic }}--header "Authorization: Basic {{ .Values.modelsVolume.auth.basic }}"{{ end }}
               fi
           volumeMounts:
           - mountPath: {{ .Values.deployment.env.modelsPath }}
             name: models
+      {{- end }}
       containers:
         - name: {{ template "local-ai.fullname" . }}
           image: {{ .Values.deployment.image }}
