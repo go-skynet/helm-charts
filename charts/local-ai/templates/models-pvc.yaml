@@ -1,0 +1,12 @@
+{{- if .Values.modelsVolume.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ template "local-ai.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+spec:
+  accessModes: {{ .Values.modelsVolume.pvc.accessModes }}
+  resources:
+    requests:
+      storage: {{ .Values.modelsVolume.pvc.size | quote }}
+{{- end }}
