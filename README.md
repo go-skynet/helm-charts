@@ -4,7 +4,7 @@ Helm charts for go-skynet projects.
 ## LocalAI Installation
 Add the go-skynet helm repo:
 ```bash
-helm repo add go-skynet https://raw.githubusercontent.com/go-skynet/helm-charts/gh-pages
+helm repo add go-skynet https://go-skynet.github.io/helm-charts/
 ```
 
 Create a `values.yaml` file for the LocalAI chart and customize as needed:
