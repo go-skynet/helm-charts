@@ -25,6 +25,8 @@ modelsVolume:
     size: 6Gi
     accessModes:
     - ReadWriteOnce
+    # Optional
+    # storageClassName: ""
   auth:
     # Optional value for HTTP basic access authentication header
     basic: "" # 'username:password' base64 encoded

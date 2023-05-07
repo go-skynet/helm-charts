@@ -5,6 +5,9 @@ metadata:
   name: {{ template "local-ai.fullname" . }}
   namespace: {{ .Release.Namespace | quote }}
 spec:
+  {{- if .Values.modelsVolume.pvc.storageClassName }}
+  storageClassName: {{ .Values.modelsVolume.pvc.storageClassName }}
+  {{- end }}
   accessModes: {{ .Values.modelsVolume.pvc.accessModes }}
   resources:
     requests:
