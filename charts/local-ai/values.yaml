@@ -1,3 +1,5 @@
+replicaCount: 1
+
 deployment:
   image: quay.io/go-skynet/local-ai:latest
   env:
