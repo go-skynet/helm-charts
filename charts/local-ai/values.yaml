@@ -13,7 +13,7 @@ modelsVolume:
   pvc:
     size: 6Gi
     accessModes:
-    - ReadWriteOnce
+      - ReadWriteOnce
     # Optional
     # storageClassName: ""
   auth:
