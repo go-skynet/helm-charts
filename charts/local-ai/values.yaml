@@ -7,20 +7,20 @@ deployment:
     contextSize: 512
     modelsPath: "/models"
 
-# Optionally create a PVC, mount the PV to the LocalAI Deployment,
-# and download a model to prepopulate the models directory
-modelsVolume:
-  enabled: true
-  url: "https://gpt4all.io/models/ggml-gpt4all-j.bin"
-  pvc:
+models:
+  list:
+    - url: "https://gpt4all.io/models/ggml-gpt4all-j.bin"
+
+  persistence:
+    enabled: false
     size: 6Gi
     accessModes:
       - ReadWriteOnce
+
+    annotations: {}
+
     # Optional
-    # storageClassName: ""
-  auth:
-    # Optional value for HTTP basic access authentication header
-    basic: "" # 'username:password' base64 encoded
+    storageClass: ~
 
 service:
   type: ClusterIP

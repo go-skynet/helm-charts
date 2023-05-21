@@ -1,3 +1,8 @@
+{{- $urls := "" -}}
+{{- range $idx, $model := .Values.models.list }}
+{{- $urls = printf "%s%s," $urls $model.url }}
+{{- end }}
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,21 +23,34 @@ spec:
         app.kubernetes.io/name: {{ include "local-ai.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
-      {{- if .Values.modelsVolume.enabled }}
       initContainers:
         - name: download-model
           image: busybox
           command: ["/bin/sh", "-c"]
           args:
             - |
-              url={{ .Values.modelsVolume.url | quote }}
-              if [[ ! -f "{{ .Values.deployment.env.modelsPath }}/${url##*/}" ]]; then
-                wget {{ .Values.modelsVolume.url }} -P {{ .Values.deployment.env.modelsPath }} {{ if .Values.modelsVolume.auth.basic }}--header "Authorization: Basic {{ .Values.modelsVolume.auth.basic }}"{{ end }}
-              fi
+              url_csv={{ $urls | quote }}
+              IFS=','
+
+              for url in $url_csv; do
+                filename=$(basename "$url")
+                
+                if [ -f "/models/$filename" ]; then
+                    echo "Model $filename already exists. Skipping download."
+                else
+                    echo "Downloading $filename..."
+                    wget "$url" -P /models
+
+                    if [ "$?" -ne 0 ]; then
+                      echo "Download failed."
+                    else
+                      echo "Download completed."
+                    fi
+                fi
+              done
           volumeMounts:
           - mountPath: {{ .Values.deployment.env.modelsPath }}
             name: models
-      {{- end }}
       containers:
         - name: {{ template "local-ai.fullname" . }}
           image: {{ .Values.deployment.image }}
@@ -47,6 +65,11 @@ spec:
           - mountPath: {{ .Values.deployment.env.modelsPath }}
             name: models
       volumes:
+      {{- if .Values.models.persistence.enabled }}
       - name: models
         persistentVolumeClaim:
           claimName: {{ template "local-ai.fullname" . }}
+      {{- else }}
+      - name: models
+        emptyDir: {}
+      {{- end }}
