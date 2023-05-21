@@ -54,6 +54,8 @@ spec:
       containers:
         - name: {{ template "local-ai.fullname" . }}
           image: {{ .Values.deployment.image }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
           env:
           - name: THREADS
             value: {{ .Values.deployment.env.threads | quote }}
