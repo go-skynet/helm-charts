@@ -1,3 +1,4 @@
+{{- if .Values.promptTemplates -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,3 +8,4 @@ data:
   {{ $key }}: |-
 {{ $val | indent 4 }}
 {{- end }}
+{{- end -}}
