@@ -30,7 +30,7 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              cp -r /prompt-templates/* /models
+              cp -fL /prompt-templates/* /models
           volumeMounts:
             - mountPath: /prompt-templates
               name: prompt-templates
