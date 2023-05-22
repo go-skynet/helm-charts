@@ -23,7 +23,9 @@ spec:
         app.kubernetes.io/name: {{ include "local-ai.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
+        {{- if .Values.promptTemplates }}
         checksum/config-prompt-templates: {{ include (print $.Template.BasePath "/configmap-prompt-templates.yaml") . | sha256sum }}
+        {{- end }}
     spec:
       initContainers:
         {{- if .Values.promptTemplates }}
