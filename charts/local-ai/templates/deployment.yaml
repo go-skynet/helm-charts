@@ -1,6 +1,6 @@
 {{- $urls := "" -}}
 {{- range $idx, $model := .Values.models.list }}
-{{- $urls = printf "%s%s," $urls $model.url }}
+{{- $urls = printf "%s%s %s," $urls $model.url ($model.basicAuth | default "") }}
 {{- end }}
 
 apiVersion: apps/v1
@@ -46,24 +46,41 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              url_csv={{ $urls | quote }}
-              IFS=','
+              MODEL_DIR={{ .Values.deployment.env.modelsPath }}
+              FORCE_DOWNLOAD={{ .Values.models.forceDownload }}
+              URLS="{{ $urls }}"
 
-              for url in $url_csv; do
-                filename=$(basename "$url")
-                
-                if [ -f "/models/$filename" ]; then
-                    echo "Model $filename already exists. Skipping download."
-                else
-                    echo "Downloading $filename..."
-                    wget "$url" -P /models
+              mkdir -p "$MODEL_DIR"
 
-                    if [ "$?" -ne 0 ]; then
-                      echo "Download failed."
-                    else
-                      echo "Download completed."
-                    fi
-                fi
+              # Split urls on commas
+              echo "$URLS" | awk -F, '{for (i=1; i<=NF; i++) print $i}' | while read -r line; do
+                  url=$(echo "$line" | awk '{print $1}')
+                  auth=$(echo "$line" | awk '{print $2}')
+
+                  if [ -n "$url" ]; then
+                      filename=$(basename "$url")
+
+                      if [ "$FORCE_DOWNLOAD" = false ] && [ -f "$MODEL_DIR/$filename" ]; then
+                          echo "File $filename already exists. Skipping download."
+                          continue
+                      fi
+
+                      rm -f "$MODEL_DIR/$filename"
+
+                      echo "Downloading $filename"
+
+                      if [ -n "$auth" ]; then
+                          wget -P "$MODEL_DIR" --header "Authorization: Basic $auth" "$url"
+                      else
+                          wget -P "$MODEL_DIR" "$url"
+                      fi
+
+                      if [ "$?" -ne 0 ]; then
+                          echo "Download failed."
+                      else
+                          echo "Download completed."
+                      fi
+                  fi
               done
           volumeMounts:
           - mountPath: {{ .Values.deployment.env.modelsPath }}
