@@ -1,3 +1,8 @@
+{{- $urls := "" -}}
+{{- range $idx, $model := .Values.models.list }}
+{{- $urls = printf "%s%s %s," $urls $model.url ($model.basicAuth | default "") }}
+{{- end }}
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,32 +15,81 @@ spec:
     matchLabels:
       app.kubernetes.io/name: {{ include "local-ai.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
-  replicas: 1
+  replicas: {{ .Values.replicaCount }}
   template:
     metadata:
       name: {{ template "local-ai.fullname" . }}
       labels:
         app.kubernetes.io/name: {{ include "local-ai.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        {{- if .Values.promptTemplates }}
+        checksum/config-prompt-templates: {{ include (print $.Template.BasePath "/configmap-prompt-templates.yaml") . | sha256sum }}
+        {{- end }}
     spec:
-      {{- if .Values.modelsVolume.enabled }}
       initContainers:
+        {{- if .Values.promptTemplates }}
+        - name: prompt-templates
+          image: busybox
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              cp -fL /prompt-templates/* /models
+          volumeMounts:
+            - mountPath: /prompt-templates
+              name: prompt-templates
+            - mountPath: /models
+              name: models
+        {{- end }}
         - name: download-model
           image: busybox
           command: ["/bin/sh", "-c"]
           args:
             - |
-              url={{ .Values.modelsVolume.url | quote }}
-              if [[ ! -f "{{ .Values.deployment.env.modelsPath }}/${url##*/}" ]]; then
-                wget {{ .Values.modelsVolume.url }} -P {{ .Values.deployment.env.modelsPath }} {{ if .Values.modelsVolume.auth.basic }}--header "Authorization: Basic {{ .Values.modelsVolume.auth.basic }}"{{ end }}
-              fi
+              MODEL_DIR={{ .Values.deployment.env.modelsPath }}
+              FORCE_DOWNLOAD={{ .Values.models.forceDownload }}
+              URLS="{{ $urls }}"
+
+              mkdir -p "$MODEL_DIR"
+
+              # Split urls on commas
+              echo "$URLS" | awk -F, '{for (i=1; i<=NF; i++) print $i}' | while read -r line; do
+                  url=$(echo "$line" | awk '{print $1}')
+                  auth=$(echo "$line" | awk '{print $2}')
+
+                  if [ -n "$url" ]; then
+                      filename=$(basename "$url")
+
+                      if [ "$FORCE_DOWNLOAD" = false ] && [ -f "$MODEL_DIR/$filename" ]; then
+                          echo "File $filename already exists. Skipping download."
+                          continue
+                      fi
+
+                      rm -f "$MODEL_DIR/$filename"
+
+                      echo "Downloading $filename"
+
+                      if [ -n "$auth" ]; then
+                          wget -P "$MODEL_DIR" --header "Authorization: Basic $auth" "$url"
+                      else
+                          wget -P "$MODEL_DIR" "$url"
+                      fi
+
+                      if [ "$?" -ne 0 ]; then
+                          echo "Download failed."
+                      else
+                          echo "Download completed."
+                      fi
+                  fi
+              done
           volumeMounts:
           - mountPath: {{ .Values.deployment.env.modelsPath }}
             name: models
-      {{- end }}
       containers:
         - name: {{ template "local-ai.fullname" . }}
           image: {{ .Values.deployment.image }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
           env:
           - name: THREADS
             value: {{ .Values.deployment.env.threads | quote }}
@@ -47,6 +101,26 @@ spec:
           - mountPath: {{ .Values.deployment.env.modelsPath }}
             name: models
       volumes:
+      {{- if .Values.models.persistence.enabled }}
       - name: models
         persistentVolumeClaim:
           claimName: {{ template "local-ai.fullname" . }}
+      {{- else }}
+      - name: models
+        emptyDir: {}
+      {{- end }}
+      - name: prompt-templates
+        configMap:
+          name: {{ template "local-ai.fullname" . }}-prompt-templates
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -15,5 +15,6 @@ spec:
   type: "{{ .Values.service.type }}"
   ports:
     - protocol: TCP
-      port: 8080
+      port: {{ .Values.service.port }}
       targetPort: 8080
+      name: http

@@ -1,0 +1,11 @@
+{{- if .Values.promptTemplates -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "local-ai.fullname" . }}-prompt-templates
+data:
+{{- range $key, $val := .Values.promptTemplates }}
+  {{ $key }}: |-
+{{ $val | indent 4 }}
+{{- end }}
+{{- end -}}

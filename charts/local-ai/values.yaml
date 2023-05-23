@@ -1,3 +1,5 @@
+replicaCount: 1
+
 deployment:
   image: quay.io/go-skynet/local-ai:latest
   env:
@@ -5,23 +7,78 @@ deployment:
     contextSize: 512
     modelsPath: "/models"
 
-# Optionally create a PVC, mount the PV to the LocalAI Deployment,
-# and download a model to prepopulate the models directory
-modelsVolume:
-  enabled: true
-  url: "https://gpt4all.io/models/ggml-gpt4all-j.bin"
-  pvc:
+resources:
+  {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+# Prompt templates to include
+# Note: the keys of this map will be the names of the prompt template files
+promptTemplates:
+  {}
+  # ggml-gpt4all-j.tmpl: |
+  #   The prompt below is a question to answer, a task to complete, or a conversation to respond to; decide which and write an appropriate response.
+  #   ### Prompt:
+  #   {{.Input}}
+  #   ### Response:
+
+# Models to download at runtime
+models:
+  # Whether to force download models even if they already exist
+  forceDownload: false
+
+  # The list of URLs to download models from
+  # Note: the name of the file will be the name of the loaded model
+  list:
+    - url: "https://gpt4all.io/models/ggml-gpt4all-j.bin"
+      # basicAuth: base64EncodedCredentials
+
+  # Persistent storage for models and prompt templates
+  persistence:
+    enabled: false
     size: 6Gi
     accessModes:
-    - ReadWriteOnce
+      - ReadWriteOnce
+
+    annotations: {}
+
     # Optional
-    # storageClassName: ""
-  auth:
-    # Optional value for HTTP basic access authentication header
-    basic: "" # 'username:password' base64 encoded
+    storageClass: ~
 
 service:
   type: ClusterIP
+  port: 80
   annotations: {}
   # If using an AWS load balancer, you'll need to override the default 60s load balancer idle timeout
   # service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "1200"
+
+ingress:
+  enabled: false
+  className: ""
+  annotations:
+    {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
