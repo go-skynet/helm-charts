@@ -101,10 +101,14 @@ spec:
           - mountPath: {{ .Values.deployment.env.modelsPath }}
             name: models
       volumes:
-      {{- if .Values.models.persistence.enabled }}
+      {{- if .Values.models.persistence.pvc.enabled }}
       - name: models
         persistentVolumeClaim:
           claimName: {{ template "local-ai.fullname" . }}
+      {{- else if .Values.models.persistence.hostPath.enabled }}
+      - name: models
+        hostPath:
+          path: {{ .Values.models.persistence.hostPath.path }}
       {{- else }}
       - name: models
         emptyDir: {}
