@@ -46,7 +46,7 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              MODEL_DIR={{ .Values.deployment.env.modelsPath }}
+              MODEL_DIR={{ .Values.deployment.modelsPath }}
               FORCE_DOWNLOAD={{ .Values.models.forceDownload }}
               URLS="{{ $urls }}"
 
@@ -83,7 +83,7 @@ spec:
                   fi
               done
           volumeMounts:
-          - mountPath: {{ .Values.deployment.env.modelsPath }}
+          - mountPath: {{ .Values.deployment.modelsPath }}
             name: models
       containers:
         - name: {{ template "local-ai.fullname" . }}
@@ -91,14 +91,14 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
-          - name: THREADS
-            value: {{ .Values.deployment.env.threads | quote }}
-          - name: CONTEXT_SIZE
-            value: {{ .Values.deployment.env.contextSize | quote }}
+          {{- range $key, $value := .Values.deployment.env }}
+          - name: {{ $key | upper }}
+            value: {{ quote $value }}
+          {{- end }}
           - name: MODELS_PATH
-            value: {{ .Values.deployment.env.modelsPath }}
+            value: {{ .Values.deployment.modelsPath }}
           volumeMounts:
-          - mountPath: {{ .Values.deployment.env.modelsPath }}
+          - mountPath: {{ .Values.deployment.modelsPath }}
             name: models
       volumes:
       {{- if .Values.models.persistence.pvc.enabled }}
