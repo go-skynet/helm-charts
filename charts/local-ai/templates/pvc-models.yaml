@@ -1,4 +1,4 @@
-{{- if .Values.models.persistence.enabled }}
+{{- if .Values.models.persistence.pvc.enabled }}
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
@@ -7,18 +7,18 @@ metadata:
   labels:
     {{- include "local-ai.labels" . | nindent 4 }}
   annotations:
-    {{- if .Values.models.persistence.annotations }}
-    {{- toYaml .Values.models.persistence.annotations | nindent 4 }}
+    {{- if .Values.models.persistence.pvc.annotations }}
+    {{- toYaml .Values.models.persistence.pvc.annotations | nindent 4 }}
     {{- end }}
 spec:
-{{- if .Values.models.persistence.storageClass }}
-  storageClassName: {{ .Values.models.persistence.storageClass }}
+{{- if .Values.models.persistence.pvc.storageClass }}
+  storageClassName: {{ .Values.models.persistence.pvc.storageClass }}
   {{- end }}
   accessModes:
-  {{- range .Values.models.persistence.accessModes }}
+  {{- range .Values.models.persistence.pvc.accessModes }}
     - {{ . | quote }}
   {{- end }}
   resources:
     requests:
-      storage: {{ .Values.models.persistence.size | quote }}
+      storage: {{ .Values.models.persistence.pvc.size | quote }}
 {{- end }}
