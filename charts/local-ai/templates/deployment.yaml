@@ -58,7 +58,7 @@ spec:
                   auth=$(echo "$line" | awk '{print $2}')
 
                   if [ -n "$url" ]; then
-                      filename=$(basename "$url")
+                      filename=$(basename "$url" .bin)
 
                       if [ "$FORCE_DOWNLOAD" = false ] && [ -f "$MODEL_DIR/$filename" ]; then
                           echo "File $filename already exists. Skipping download."
@@ -70,9 +70,9 @@ spec:
                       echo "Downloading $filename"
 
                       if [ -n "$auth" ]; then
-                          wget -P "$MODEL_DIR" --header "Authorization: Basic $auth" "$url"
+                          wget --header "Authorization: Basic $auth" "$url" -O "$MODEL_DIR/$filename"
                       else
-                          wget -P "$MODEL_DIR" "$url"
+                          wget "$url" -O "$MODEL_DIR/$filename"
                       fi
 
                       if [ "$?" -ne 0 ]; then
