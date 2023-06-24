@@ -16,6 +16,7 @@ deployment:
     threads: 14
     contextSize: 512
     modelsPath: "/models"
+    rebuild: true
 # Optionally create a PVC, mount the PV to the LocalAI Deployment,
 # and download a model to prepopulate the models directory
 modelsVolume:

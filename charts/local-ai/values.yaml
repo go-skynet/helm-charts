@@ -6,6 +6,7 @@ deployment:
     threads: 4
     contextSize: 512
     modelsPath: "/models"
+    rebuild: true
 
 resources:
   {}

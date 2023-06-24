@@ -97,6 +97,8 @@ spec:
             value: {{ .Values.deployment.env.contextSize | quote }}
           - name: MODELS_PATH
             value: {{ .Values.deployment.env.modelsPath }}
+          - name: REBUILD
+            value: {{ .Values.deployment.env.rebuild | quote }}
           volumeMounts:
           - mountPath: {{ .Values.deployment.env.modelsPath }}
             name: models
