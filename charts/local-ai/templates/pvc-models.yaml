@@ -6,10 +6,10 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "local-ai.labels" . | nindent 4 }}
+  {{- with .Values.models.persistence.pvc.annotations }}
   annotations:
-    {{- with .Values.models.persistence.pvc.annotations }}
-      {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
 {{- if .Values.models.persistence.pvc.storageClass }}
   storageClassName: {{ .Values.models.persistence.pvc.storageClass }}
