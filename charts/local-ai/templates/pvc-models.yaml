@@ -10,8 +10,8 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-{{- if .Values.models.persistence.pvc.storageClass }}
-  storageClassName: {{ .Values.models.persistence.pvc.storageClass }}
+  {{- with .Values.models.persistence.pvc.storageClass }}
+  storageClassName: {{ . }}
   {{- end }}
   accessModes:
   {{- range .Values.models.persistence.pvc.accessModes }}
