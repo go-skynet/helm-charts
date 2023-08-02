@@ -30,7 +30,7 @@ spec:
       initContainers:
         {{- if .Values.promptTemplates }}
         - name: prompt-templates
-          image: busybox
+          image: {{ .Values.deployment.prompt_templates.image }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -42,7 +42,7 @@ spec:
               name: models
         {{- end }}
         - name: download-model
-          image: busybox
+          image: {{ .Values.deployment.download_model.image }}
           command: ["/bin/sh", "-c"]
           args:
             - |
