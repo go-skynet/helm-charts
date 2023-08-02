@@ -13,6 +13,9 @@ spec:
   selector:
     app.kubernetes.io/name: {{ include "local-ai.name" . }}
   type: "{{ .Values.service.type }}"
+{{- if .Values.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .Values.service.externalTrafficPolicy }}
+{{- end }}
   ports:
     - protocol: TCP
       port: {{ .Values.service.port }}

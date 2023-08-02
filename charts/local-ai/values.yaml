@@ -69,6 +69,8 @@ models:
 
 service:
   type: ClusterIP
+  # If deferring to an internal only load balancer
+  # externalTrafficPolicy: Local
   port: 80
   annotations: {}
   # If using an AWS load balancer, you'll need to override the default 60s load balancer idle timeout
