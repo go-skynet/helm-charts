@@ -31,6 +31,7 @@ spec:
         {{- if .Values.promptTemplates }}
         - name: prompt-templates
           image: {{ .Values.deployment.prompt_templates.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -43,6 +44,7 @@ spec:
         {{- end }}
         - name: download-model
           image: {{ .Values.deployment.download_model.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -88,6 +90,7 @@ spec:
       containers:
         - name: {{ template "local-ai.fullname" . }}
           image: {{ .Values.deployment.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
