@@ -99,3 +99,7 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+image:
+  pullPolicy: IfNotPresent
+
