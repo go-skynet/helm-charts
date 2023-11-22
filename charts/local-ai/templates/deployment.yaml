@@ -27,14 +27,14 @@ spec:
         checksum/config-prompt-templates: {{ include (print $.Template.BasePath "/configmap-prompt-templates.yaml") . | sha256sum }}
         {{- end }}
     spec:
+    {{- with .Values.deployment.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
       initContainers:
         {{- if .Values.promptTemplates }}
         - name: prompt-templates
           image: {{ .Values.deployment.prompt_templates.image }}
-          {{- with .Values.deployment.imagePullSecrets }}
-          imagePullSecrets:
-          {{- toYaml . | nindent 12 }}
-          {{- end }}
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
           command: ["/bin/sh", "-c"]
           args:
@@ -48,10 +48,6 @@ spec:
         {{- end }}
         - name: download-model
           image: {{ .Values.deployment.download_model.image }}
-          {{- with .Values.deployment.imagePullSecrets }}
-          imagePullSecrets:
-          {{- toYaml . | nindent 12 }}
-          {{- end }}
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
           command: ["/bin/sh", "-c"]
           args:
@@ -98,10 +94,6 @@ spec:
       containers:
         - name: {{ template "local-ai.fullname" . }}
           image: {{ .Values.deployment.image }}
-          {{- with .Values.deployment.imagePullSecrets }}
-          imagePullSecrets:
-          {{- toYaml . | nindent 12 }}
-          {{- end }}
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
