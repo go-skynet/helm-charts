@@ -107,6 +107,8 @@ spec:
           volumeMounts:
           - mountPath: {{ .Values.deployment.modelsPath }}
             name: models
+          - mountPath: /tmp/generated/images
+            name: sd-generated-images
       volumes:
       {{- if .Values.models.persistence.pvc.enabled }}
       - name: models
@@ -120,6 +122,8 @@ spec:
       - name: models
         emptyDir: {}
       {{- end }}
+      - names: sd-generated-images
+        emptyDir: {}
       - name: prompt-templates
         configMap:
           name: {{ template "local-ai.fullname" . }}-prompt-templates
