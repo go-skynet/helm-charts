@@ -13,11 +13,22 @@ cat <<EOF > values.yaml
 replicaCount: 1
 
 deployment:
-  image: quay.io/go-skynet/local-ai:latest
+  image:
+    repository: quay.io/go-skynet/local-ai  # Example: "docker.io/myapp"
+    tag: latest    
   env:
     threads: 4
     context_size: 512
   modelsPath: "/models"
+  download_model:
+    # To use cloud provided (eg AWS) image, provide it like: 1234356789.dkr.ecr.us-REGION-X.amazonaws.com/busybox
+    image: busybox
+  prompt_templates:
+    # To use cloud provided (eg AWS) image, provide it like: 1234356789.dkr.ecr.us-REGION-X.amazonaws.com/busybox
+    image: busybox
+  pullPolicy: IfNotPresent
+  imagePullSecrets: []
+    # - name: secret-names
 
 resources:
   {}
@@ -50,31 +61,51 @@ models:
   # The list of URLs to download models from
   # Note: the name of the file will be the name of the loaded model
   list:
-    - url: "https://gpt4all.io/models/ggml-gpt4all-j.bin"
+  #  - url: "https://gpt4all.io/models/ggml-gpt4all-j.bin"
       # basicAuth: base64EncodedCredentials
 
-  # Persistent storage for models and prompt templates.
-  # PVC and HostPath are mutually exclusive. If both are enabled,
-  # PVC configuration takes precedence. If neither are enabled, ephemeral
-  # storage is used.
-  persistence:
-    pvc:
-      enabled: false
-      size: 6Gi
-      accessModes:
-        - ReadWriteOnce
+initContainers: []
+# Example:
+# - name: my-init-container
+#   image: my-init-image
+#   imagePullPolicy: IfNotPresent
+#   command: ["/bin/sh", "-c", "echo init"]
+#   volumeMounts:
+#     - name: my-volume
+#       mountPath: /path/to/mount
 
-      annotations: {}
+sidecarContainers: []
+# Example:
+# - name: my-sidecar-container
+#   image: my-sidecar-image
+#   imagePullPolicy: IfNotPresent
+#   ports:
+#     - containerPort: 1234
 
-      # Optional
-      storageClass: ~
-
-    hostPath:
-      enabled: false
-      path: "/models"
+# Persistent storage for models and prompt templates.
+# PVC and HostPath are mutually exclusive. If both are enabled,
+# PVC configuration takes precedence. If neither are enabled, ephemeral
+# storage is used.
+persistence:
+  models: 
+    enabled: true
+    annotations: {}
+    storageClass: longhorn
+    accessModes: ReadWriteMany
+    size: 100Gi
+    globalMount: /models
+  images:
+    enabled: true
+    annotations: {}
+    storageClass: longhorn
+    accessModes: ReadWriteMany
+    size: 5Gi
+    globalMount: /tmp/generated/images
 
 service:
   type: ClusterIP
+  # If deferring to an internal only load balancer
+  # externalTrafficPolicy: Local
   port: 80
   annotations: {}
   # If using an AWS load balancer, you'll need to override the default 60s load balancer idle timeout
@@ -102,6 +133,8 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+
 
 ```
 Install the LocalAI chart:
