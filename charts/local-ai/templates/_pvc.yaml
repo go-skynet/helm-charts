@@ -1,0 +1,23 @@
+{{- define "local-ai.pvc" }}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ .name }}
+  namespace: {{ .namespace | quote }}
+  labels: {{ include "local-ai.labels" .labels | nindent 4 }}
+  {{- with .annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  accessModes:
+    {{- range .accessModes }}
+    - {{ . | quote }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .size | quote }}
+{{- end }}

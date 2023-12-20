@@ -27,11 +27,33 @@ spec:
         checksum/config-prompt-templates: {{ include (print $.Template.BasePath "/configmap-prompt-templates.yaml") . | sha256sum }}
         {{- end }}
     spec:
-    {{- with .Values.deployment.imagePullSecrets }}
+      {{- with .Values.deployment.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
-    {{- end }}
+      {{- end }}
       initContainers:
+        # Additional initContainers from values.yaml
+        {{- range .Values.initContainers }}
+        - name: {{ .name }}
+          image: {{ .image }}
+          imagePullPolicy: {{ .imagePullPolicy }}
+          command: {{ .command }}
+          args: {{ .args | default list }}
+          env:
+            {{- toYaml .env | nindent 12 }}
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          volumeMounts:
+            {{- toYaml .volumeMounts | nindent 12 }}
+            {{- range $key, $pvc := .Values.persistence }}
+              {{- if $pvc.enabled }}
+              - name: {{ $key }}
+                mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
+              {{- end }}
+            {{- end }}
+          securityContext:
+            {{- toYaml .securityContext | nindent 12 }}
+        {{- end }} 
         {{- if .Values.promptTemplates }}
         - name: prompt-templates
           image: {{ .Values.deployment.prompt_templates.image }}
@@ -43,8 +65,12 @@ spec:
           volumeMounts:
             - mountPath: /prompt-templates
               name: prompt-templates
-            - mountPath: /models
-              name: models
+            {{- range $key, $pvc := .Values.persistence }}
+              {{- if $pvc.enabled }}
+              - name: {{ $key }}
+                mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
+              {{- end }}
+            {{- end }}
         {{- end }}
         - name: download-model
           image: {{ .Values.deployment.download_model.image }}
@@ -58,7 +84,6 @@ spec:
 
               mkdir -p "$MODEL_DIR"
 
-              # Split urls on commas
               echo "$URLS" | awk -F, '{for (i=1; i<=NF; i++) print $i}' | while read -r line; do
                   url=$(echo "$line" | awk '{print $1}')
                   auth=$(echo "$line" | awk '{print $2}')
@@ -89,40 +114,71 @@ spec:
                   fi
               done
           volumeMounts:
-          - mountPath: {{ .Values.deployment.modelsPath }}
-            name: models
+            {{- range $key, $pvc := .Values.persistence }}
+              {{- if $pvc.enabled }}
+              - name: {{ $key }}
+                mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
+              {{- end }}
+            {{- end }}
       containers:
+        # Sidecar containers from values.yaml
+        {{- range .Values.sidecarContainers }}
+        - name: {{ .name }}
+          image: {{ .image }}
+          imagePullPolicy: {{ .imagePullPolicy }}
+          command: {{ .command }}
+          args: {{ .args | default list }}
+          env:
+            {{- toYaml .env | nindent 12 }}
+          ports:
+            {{- toYaml .ports | nindent 12 }}
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          volumeMounts:
+            {{- toYaml .volumeMounts | nindent 12 }}
+            {{- range $key, $pvc := .Values.persistence }}
+              {{- if $pvc.enabled }}
+              - name: {{ $key }}
+                mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
+              {{- end }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .readinessProbe | nindent 12 }}
+          securityContext:
+            {{- toYaml .securityContext | nindent 12 }}
+        {{- end }}
         - name: {{ template "local-ai.fullname" . }}
-          image: {{ .Values.deployment.image }}
+          image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}"
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
-          {{- range $key, $value := .Values.deployment.env }}
-          - name: {{ $key | upper }}
-            value: {{ quote $value }}
-          {{- end }}
-          - name: MODELS_PATH
-            value: {{ .Values.deployment.modelsPath }}
+            {{- range $key, $value := .Values.deployment.env }}
+            - name: {{ $key | upper }}
+              value: {{ quote $value }}
+            {{- end }}
+            - name: MODELS_PATH
+              value: {{ .Values.deployment.modelsPath }}
           volumeMounts:
-          - mountPath: {{ .Values.deployment.modelsPath }}
-            name: models
+            {{- range $key, $pvc := .Values.persistence }}
+              {{- if $pvc.enabled }}
+              - name: {{ $key }}
+                mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
+              {{- end }}
+            {{- end }}
       volumes:
-      {{- if .Values.models.persistence.pvc.enabled }}
-      - name: models
-        persistentVolumeClaim:
-          claimName: {{ template "local-ai.fullname" . }}
-      {{- else if .Values.models.persistence.hostPath.enabled }}
-      - name: models
-        hostPath:
-          path: {{ .Values.models.persistence.hostPath.path }}
-      {{- else }}
-      - name: models
-        emptyDir: {}
-      {{- end }}
-      - name: prompt-templates
-        configMap:
-          name: {{ template "local-ai.fullname" . }}-prompt-templates
+        {{- range $key, $pvc := .Values.persistence }}
+          {{- if $pvc.enabled }}
+          - name: {{ $key }}
+            persistentVolumeClaim:
+              claimName: {{ printf "%s-%s" (include "local-ai.fullname" $) $key }}
+          {{- end }}
+        {{- end }}
+        - name: prompt-templates
+          configMap:
+            name: {{ template "local-ai.fullname" . }}-prompt-templates
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
