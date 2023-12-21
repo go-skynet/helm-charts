@@ -78,17 +78,17 @@ persistence:
   models: 
     enabled: true
     annotations: {}
-    storageClass: longhorn
+    storageClass: hostPath
     accessModes: ReadWriteMany
-    size: 100Gi
+    size: 10Gi
     globalMount: /models
-  images:
+  output:
     enabled: true
     annotations: {}
-    storageClass: longhorn
+    storageClass: hostPAth
     accessModes: ReadWriteMany
     size: 5Gi
-    globalMount: /tmp/generated/images
+    globalMount: /tmp/generated
 
 service:
   type: ClusterIP
