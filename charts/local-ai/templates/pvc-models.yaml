@@ -1,0 +1,23 @@
+{{- if .Values.models.persistence.pvc.enabled }}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ template "local-ai.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{ include "local-ai.labels" . | nindent 4 }}
+  {{- with .Values.models.persistence.pvc.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.models.persistence.pvc.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  {{- range .Values.models.persistence.pvc.accessModes }}
+  accessModes:
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.models.persistence.pvc.size | quote }}
+{{- end }}
