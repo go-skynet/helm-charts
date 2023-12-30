@@ -1,0 +1,5 @@
+{{- range $key, $pvc := .Values.persistence }}
+  {{- if $pvc.enabled }}
+    {{- include "local-ai.pvc" (dict "name" (printf "%s-%s" (include "local-ai.fullname" $) $key) "namespace" $.Release.Namespace "labels" (include "local-ai.labels" $) "annotations" $pvc.annotations "storageClass" $pvc.storageClass "accessModes" $pvc.accessModes "size" $pvc.size) }}
+  {{- end }}
+{{- end }}
