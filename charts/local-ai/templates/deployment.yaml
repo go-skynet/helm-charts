@@ -27,33 +27,11 @@ spec:
         checksum/config-prompt-templates: {{ include (print $.Template.BasePath "/configmap-prompt-templates.yaml") . | sha256sum }}
         {{- end }}
     spec:
-      {{- with .Values.deployment.imagePullSecrets }}
+    {{- with .Values.deployment.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+    {{- end }}
       initContainers:
-        # Additional initContainers from values.yaml
-        {{- range .Values.initContainers }}
-        - name: {{ .name }}
-          image: {{ .image }}
-          imagePullPolicy: {{ .imagePullPolicy }}
-          command: {{ .command }}
-          args: {{ .args | default list }}
-          env:
-            {{- toYaml .env | nindent 12 }}
-          resources:
-            {{- toYaml .resources | nindent 12 }}
-          volumeMounts:
-            {{- toYaml .volumeMounts | nindent 12 }}
-            {{- range $key, $pvc := .Values.persistence }}
-              {{- if $pvc.enabled }}
-              - name: {{ $key }}
-                mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
-              {{- end }}
-            {{- end }}
-          securityContext:
-            {{- toYaml .securityContext | nindent 12 }}
-        {{- end }} 
         {{- if .Values.promptTemplates }}
         - name: prompt-templates
           image: {{ .Values.deployment.prompt_templates.image }}
@@ -65,12 +43,8 @@ spec:
           volumeMounts:
             - mountPath: /prompt-templates
               name: prompt-templates
-            {{- range $key, $pvc := .Values.persistence }}
-              {{- if $pvc.enabled }}
-              - name: {{ $key }}
-                mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
-              {{- end }}
-            {{- end }}
+            - mountPath: /models
+              name: models
         {{- end }}
         - name: download-model
           image: {{ .Values.deployment.download_model.image }}
@@ -81,119 +55,74 @@ spec:
               MODEL_DIR={{ .Values.deployment.modelsPath }}
               FORCE_DOWNLOAD={{ .Values.models.forceDownload }}
               URLS="{{ $urls }}"
-              LOCK_DIR=/tmp/model-download-locks
 
               mkdir -p "$MODEL_DIR"
-              mkdir -p "$LOCK_DIR"
-              mkdir -p "/tmp/generated/images"
-              mkdir -p "/tmp/generated/audio"
-              rm -rf "/models/lost+found"
 
-
+              # Split urls on commas
               echo "$URLS" | awk -F, '{for (i=1; i<=NF; i++) print $i}' | while read -r line; do
                   url=$(echo "$line" | awk '{print $1}')
                   auth=$(echo "$line" | awk '{print $2}')
-                  full_filename=$(basename "$url" .bin)
-                  short_filename=$(echo "$full_filename" | cut -c1-20)
-                  hash=$(echo "$full_filename" | sha256sum | cut -c1-12)
-                  filename="${short_filename}_${hash}"
-                  lockfile="$LOCK_DIR/$filename.lock"
 
-                  if [ -e "$MODEL_DIR/$filename" ]; then
-                      echo "File $filename already exists. Skipping download."
-                      continue
-                  fi
+                  if [ -n "$url" ]; then
+                      filename=$(basename "$url" .bin)
 
-                  if [ -e "$lockfile" ]; then
-                      echo "Another pod is downloading $filename. Waiting for download to complete."
-                      while [ -e "$lockfile" ]; do sleep 1; done
-                      continue
-                  fi
+                      if [ "$FORCE_DOWNLOAD" = false ] && [ -f "$MODEL_DIR/$filename" ]; then
+                          echo "File $filename already exists. Skipping download."
+                          continue
+                      fi
 
-                  touch "$lockfile"
+                      rm -f "$MODEL_DIR/$filename"
 
-                  echo "Downloading $filename"
-                  if [ -n "$auth" ]; then
-                      wget --header "Authorization: Basic $auth" "$url" -O "$MODEL_DIR/$filename"
-                  else
-                      wget "$url" -O "$MODEL_DIR/$filename"
-                  fi
+                      echo "Downloading $filename"
 
-                  if [ "$?" -ne 0 ]; then
-                      echo "Download failed."
-                      rm -f "$lockfile"
-                      exit 1
-                  else
-                      echo "Download completed."
-                      rm -f "$lockfile"
+                      if [ -n "$auth" ]; then
+                          wget --header "Authorization: Basic $auth" "$url" -O "$MODEL_DIR/$filename"
+                      else
+                          wget "$url" -O "$MODEL_DIR/$filename"
+                      fi
+
+                      if [ "$?" -ne 0 ]; then
+                          echo "Download failed."
+                      else
+                          echo "Download completed."
+                      fi
                   fi
               done
           volumeMounts:
-            {{- range $key, $pvc := .Values.persistence }}
-              {{- if $pvc.enabled }}
-              - name: {{ $key }}
-                mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
-              {{- end }}
-            {{- end }}
+          - mountPath: {{ .Values.deployment.modelsPath }}
+            name: models
       containers:
-        # Sidecar containers from values.yaml
-        {{- range .Values.sidecarContainers }}
-        - name: {{ .name }}
-          image: {{ .image }}
-          imagePullPolicy: {{ .imagePullPolicy }}
-          command: {{ .command }}
-          args: {{ .args | default list }}
-          env:
-            {{- toYaml .env | nindent 12 }}
-          ports:
-            {{- toYaml .ports | nindent 12 }}
-          resources:
-            {{- toYaml .resources | nindent 12 }}
-          volumeMounts:
-            {{- toYaml .volumeMounts | nindent 12 }}
-            {{- range $key, $pvc := .Values.persistence }}
-              {{- if $pvc.enabled }}
-              - name: {{ $key }}
-                mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
-              {{- end }}
-            {{- end }}
-          livenessProbe:
-            {{- toYaml .livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .readinessProbe | nindent 12 }}
-          securityContext:
-            {{- toYaml .securityContext | nindent 12 }}
-        {{- end }}
         - name: {{ template "local-ai.fullname" . }}
-          image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}"
+          image: {{ .Values.deployment.image }}
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
-            {{- range $key, $value := .Values.deployment.env }}
-            - name: {{ $key | upper }}
-              value: {{ quote $value }}
-            {{- end }}
-            - name: MODELS_PATH
-              value: {{ .Values.deployment.modelsPath }}
-          volumeMounts:
-            {{- range $key, $pvc := .Values.persistence }}
-              {{- if $pvc.enabled }}
-              - name: {{ $key }}
-                mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
-              {{- end }}
-            {{- end }}
-      volumes:
-        {{- range $key, $pvc := .Values.persistence }}
-          {{- if $pvc.enabled }}
-          - name: {{ $key }}
-            persistentVolumeClaim:
-              claimName: {{ printf "%s-%s" (include "local-ai.fullname" $) $key }}
+          {{- range $key, $value := .Values.deployment.env }}
+          - name: {{ $key | upper }}
+            value: {{ quote $value }}
           {{- end }}
-        {{- end }}
-        - name: prompt-templates
-          configMap:
-            name: {{ template "local-ai.fullname" . }}-prompt-templates
+          - name: MODELS_PATH
+            value: {{ .Values.deployment.modelsPath }}
+          volumeMounts:
+          - mountPath: {{ .Values.deployment.modelsPath }}
+            name: models
+      volumes:
+      {{- if .Values.models.persistence.pvc.enabled }}
+      - name: models
+        persistentVolumeClaim:
+          claimName: {{ template "local-ai.fullname" . }}
+      {{- else if .Values.models.persistence.hostPath.enabled }}
+      - name: models
+        hostPath:
+          path: {{ .Values.models.persistence.hostPath.path }}
+      {{- else }}
+      - name: models
+        emptyDir: {}
+      {{- end }}
+      - name: prompt-templates
+        configMap:
+          name: {{ template "local-ai.fullname" . }}-prompt-templates
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
