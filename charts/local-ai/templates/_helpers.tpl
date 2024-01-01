@@ -23,6 +23,7 @@ If release name contains chart name it will be used as a full name.
 {{- end }}
 {{- end }}
 
+
 {{/*
 Create chart name and version as used by the chart label.
 */}}
@@ -42,3 +43,9 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 {{- end }}
+
+# Add defaults for global.labels and global.annotations
+{{- define "local-ai.annotations" -}}
+  {}
+{{- end -}}
+

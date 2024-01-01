@@ -1,0 +1,31 @@
+{{- define "local-ai.pvc" -}}
+{{- $rootContext := .rootContext -}}
+{{- $pvcObject := .object -}}
+
+{{- $labels := merge
+  ($pvcObject.labels | default dict)
+  (include "local-ai.labels" $rootContext | fromYaml)
+-}}
+
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ $pvcObject.name }}
+  {{- with $labels }}
+  labels: {{- toYaml . | nindent 4 -}}
+  {{- end }}
+  {{- with $pvcObject.annotations }}
+  annotations: {{- toYaml . | nindent 4 -}}
+  {{- end }}
+spec:
+  accessModes:
+    - {{ required "accessMode is required for PVC" $pvcObject.accessMode | quote }}
+  resources:
+    requests:
+      storage: {{ required "size is required for PVC" $pvcObject.size | quote }}
+  {{- if $pvcObject.storageClass }}
+  storageClassName: {{ if (eq "-" $pvcObject.storageClass) }}""{{- else }}{{ $pvcObject.storageClass | quote }}{{- end }}
+  {{- end }}
+{{- end -}}
+
