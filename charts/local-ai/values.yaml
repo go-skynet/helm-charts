@@ -17,6 +17,9 @@ deployment:
   pullPolicy: IfNotPresent
   imagePullSecrets: []
     # - name: secret-names
+  
+  ## Needed for GPU Nodes
+  #runtimeClassName: gpu
 
 resources:
   {}
