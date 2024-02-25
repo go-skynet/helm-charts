@@ -102,7 +102,7 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
-
+EOF
 ```
 Install the LocalAI chart:
 ```bash
