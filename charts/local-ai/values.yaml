@@ -56,6 +56,18 @@ promptTemplates:
 
 # Models to download at runtime
 models:
+  configs: {}
+    # myModel:
+    #   backend: llama
+    #   context_size: 2048
+    #   name: myModel
+    #   parameters:
+    #     model: some_file.gguf
+    #     temperature: 0.1
+    #     top_p: 0.95
+    #   threads: 5
+    #   f16: true
+    #   gpu_layers: 33
   # Whether to force download models even if they already exist
   forceDownload: false
 
@@ -75,19 +87,8 @@ initContainers: []
 #     - name: my-volume
 #       mountPath: /path/to/mount
 
+enableModelSyncronizationSidecar: true
 sidecarContainers: []
-# - name: model-loader
-#   image: quay.io/kiwigrid/k8s-sidecar:1.26.1
-#   imagePullPolicy: IfNotPresent
-#   env:
-#     - name: LABEL
-#       value: io.localai/model_source
-#     - name: LABEL_VALUE
-#       value: "1"
-#     - name: METHOD
-#       value: WATCH
-#     - name: FOLDER
-#       value: /models
 # Example:
 # - name: my-sidecar-container
 #   image: my-sidecar-image
@@ -141,6 +142,20 @@ ingress:
   #    hosts:
   #      - chart-example.local
 
+rbac:
+  create: true
+  ## Use an existing ClusterRole/Role (depending on rbac.namespaced false/true)
+  # useExistingRole: name-of-some-role
+  # useExistingClusterRole: name-of-some-clusterRole
+  namespaced: false
+  extraRoleRules: []
+  # - apiGroups: []
+  #   resources: []
+  #   verbs: []
+  extraClusterRoleRules: []
+  # - apiGroups: []
+  #   resources: []
+  #   verbs: []
 serviceAccount:
   # Specifies whether a service account should be created
   create: true

@@ -35,6 +35,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      serviceAccountName: {{ include "local-ai.serviceAccountName" . }}
       initContainers:
         # Additional initContainers from values.yaml
         {{- if .Values.initContainers }}
@@ -85,6 +86,8 @@ spec:
           args:
             - |
               cp -fL /prompt-templates/* /models
+          securityContext:
+            runAsGroup: 1000
           volumeMounts:
             - mountPath: /prompt-templates
               name: prompt-templates
@@ -179,56 +182,6 @@ spec:
             {{- end }}
 
       containers:
-        # Sidecar containers from values.yaml
-        {{- range .Values.sidecarContainers }}
-        - name: {{ .name }}
-          image: {{ .image }}
-          imagePullPolicy: {{ .imagePullPolicy }}
-          {{- if .command }}
-          command:
-            {{- toYaml .command | nindent 12 }}
-          {{- end }}
-          {{- if .args }}
-          args:
-            {{- toYaml .args | nindent 12 }}
-          {{- end }}
-          {{- if .env }}
-          env:
-            {{- toYaml .env | nindent 12 }}
-          {{- end }}
-          {{- if .ports }}
-          ports:
-            {{- toYaml .ports | nindent 12 }}
-          {{- end }}
-          {{- if .resources }}
-          resources:
-            {{- toYaml .resources | nindent 12 }}
-          {{- end }}
-          {{- if or .volumeMounts $rootPersistence }}
-          volumeMounts:
-          {{- if .volumeMounts }}
-            {{- toYaml .volumeMounts | nindent 12 }}
-          {{- end }}
-          {{- range $key, $pvc := $rootPersistence }}
-          {{- if $pvc.enabled }}
-            - name: {{ $key }}
-              mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
-          {{- end }}
-          {{- end }}
-          {{- end }}
-          {{- if .livenessProbe }}
-          livenessProbe:
-            {{- toYaml .livenessProbe | nindent 12 }}
-          {{- end }}
-          {{- if .readinessProbe }}
-          readinessProbe:
-            {{- toYaml .readinessProbe | nindent 12 }}
-          {{- end }}
-          {{- if .securityContext }}
-          securityContext:
-            {{- toYaml .securityContext | nindent 12 }}
-          {{- end }}
-        {{- end }}
         - name: {{ template "local-ai.fullname" . }}
           image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}"
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
@@ -247,8 +200,12 @@ spec:
             - name: {{ $key | upper }}
               value: {{ quote $value }}
             {{- end }}
+            - name: GALLERIES
+              value: {{ .Values.models.galleries | dict }}
             - name: MODELS_PATH
               value: {{ .Values.deployment.modelsPath }}
+          securityContext:
+            runAsGroup: 1000
           volumeMounts:
             {{- range $key, $pvc := $rootPersistence}}
               {{- if $pvc.enabled }}
@@ -256,14 +213,18 @@ spec:
               mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
               {{- end }}
             {{- end }}
+        {{ include "local-ai.sidecars" . | nindent 8 }}
       {{- if $rootPersistence}}
       volumes:
         {{- range $key, $pvc := $rootPersistence}}
-          {{- if $pvc.enabled }}
+        {{- if $pvc.enabled }}
         - name: {{ $key }}
           persistentVolumeClaim:
             claimName: {{ printf "%s-%s" (include "local-ai.fullname" $) $key }}
-          {{- end }}
+        {{- else }}
+        - name: {{ $key }}
+          emptyDir: {}
+        {{- end }}
         {{- end }}
         - name: prompt-templates
           configMap:
