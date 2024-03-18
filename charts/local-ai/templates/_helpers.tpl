@@ -36,16 +36,28 @@ Common labels
 */}}
 {{- define "local-ai.labels" -}}
 helm.sh/chart: {{ include "local-ai.chart" . }}
-app.kubernetes.io/name: {{ include "local-ai.name" . }}
-app.kubernetes.io/instance: "{{ .Release.Name }}"
-app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{ include "local-ai.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-# Add defaults for global.labels and global.annotations
-{{- define "local-ai.annotations" -}}
-  {}
-{{- end -}}
+{{/*
+Selector labels
+*/}}
+{{- define "local-ai.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "local-ai.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
 
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "local-ai.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default (include "local-ai.fullname" .) .Values.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}

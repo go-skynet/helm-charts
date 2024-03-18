@@ -76,6 +76,18 @@ initContainers: []
 #       mountPath: /path/to/mount
 
 sidecarContainers: []
+# - name: model-loader
+#   image: quay.io/kiwigrid/k8s-sidecar:1.26.1
+#   imagePullPolicy: IfNotPresent
+#   env:
+#     - name: LABEL
+#       value: io.localai/model_source
+#     - name: LABEL_VALUE
+#       value: "1"
+#     - name: METHOD
+#       value: WATCH
+#     - name: FOLDER
+#       value: /models
 # Example:
 # - name: my-sidecar-container
 #   image: my-sidecar-image
@@ -128,6 +140,17 @@ ingress:
   #  - secretName: chart-example-tls
   #    hosts:
   #      - chart-example.local
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
 
 nodeSelector: {}
 

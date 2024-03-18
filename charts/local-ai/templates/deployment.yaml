@@ -15,8 +15,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "local-ai.name" . }}
-      app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- include "local-ai.selectorLabels" . | nindent 6 }}
   replicas: {{ .Values.replicaCount }}
   template:
     metadata:
@@ -191,24 +190,24 @@ spec:
           {{- end }}
           {{- if .args }}
           args:
-            {{- toYaml .args | nindent 6 }}
+            {{- toYaml .args | nindent 12 }}
           {{- end }}
           {{- if .env }}
           env:
-            {{- toYaml .env | nindent 6 }}
+            {{- toYaml .env | nindent 12 }}
           {{- end }}
           {{- if .ports }}
           ports:
-            {{- toYaml .ports | nindent 6 }}
+            {{- toYaml .ports | nindent 12 }}
           {{- end }}
           {{- if .resources }}
           resources:
-            {{- toYaml .resources | nindent 6 }}
+            {{- toYaml .resources | nindent 12 }}
           {{- end }}
           {{- if or .volumeMounts $rootPersistence }}
           volumeMounts:
           {{- if .volumeMounts }}
-            {{- toYaml .volumeMounts | nindent 6 }}
+            {{- toYaml .volumeMounts | nindent 12 }}
           {{- end }}
           {{- range $key, $pvc := $rootPersistence }}
           {{- if $pvc.enabled }}
@@ -219,15 +218,15 @@ spec:
           {{- end }}
           {{- if .livenessProbe }}
           livenessProbe:
-            {{- toYaml .livenessProbe | nindent 6 }}
+            {{- toYaml .livenessProbe | nindent 12 }}
           {{- end }}
           {{- if .readinessProbe }}
           readinessProbe:
-            {{- toYaml .readinessProbe | nindent 6 }}
+            {{- toYaml .readinessProbe | nindent 12 }}
           {{- end }}
           {{- if .securityContext }}
           securityContext:
-            {{- toYaml .securityContext | nindent 6 }}
+            {{- toYaml .securityContext | nindent 12 }}
           {{- end }}
         {{- end }}
         - name: {{ template "local-ai.fullname" . }}
