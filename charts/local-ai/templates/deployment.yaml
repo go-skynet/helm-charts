@@ -235,6 +235,14 @@ spec:
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
           env:
             {{- range $key, $value := .Values.deployment.env }}
             - name: {{ $key | upper }}
