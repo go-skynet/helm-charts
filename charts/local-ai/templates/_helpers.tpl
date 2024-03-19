@@ -61,3 +61,14 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Preprocess the models.galleries values into what is expected by LocalAI
+*/}}
+{{- define "local-ai.galleries" -}}
+{{- $galleries := list -}}
+{{- range $name, $url :=  .Values.models.galleries -}}
+{{- $galleries = append $galleries (dict "name" $name "url" $url) -}}
+{{- end -}}
+{{- $galleries | toJson | squote -}}
+{{- end }}

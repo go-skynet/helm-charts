@@ -68,6 +68,11 @@ models:
     #   threads: 5
     #   f16: true
     #   gpu_layers: 33
+
+  galleries:
+    model-gallery: github:go-skynet/model-gallery/index.yaml
+    huggingface: go-skynet/model-gallery/huggingface.yaml
+
   # Whether to force download models even if they already exist
   forceDownload: false
 

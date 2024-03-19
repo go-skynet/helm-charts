@@ -201,7 +201,7 @@ spec:
               value: {{ quote $value }}
             {{- end }}
             - name: GALLERIES
-              value: {{ .Values.models.galleries | dict }}
+              value: {{ include "local-ai.galleries" . }}
             - name: MODELS_PATH
               value: {{ .Values.deployment.modelsPath }}
           securityContext:
