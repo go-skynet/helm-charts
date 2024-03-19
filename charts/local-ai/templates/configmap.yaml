@@ -16,7 +16,7 @@ metadata:
   {{- end }}
 data:
   {{- range $key, $data := .Values.models.configs}}
-  {{ if or (hasSuffix $key ".yml") (hasSuffix $key ".yaml") }}{{ $key }}{{ else }}{{ $key }}.yaml{{ end }}: |-
+  {{ if or (hasSuffix ".yml" $key) (hasSuffix ".yaml" $key) }}{{ $key }}{{ else }}{{ $key }}.yaml{{ end }}: |-
     {{- $data | toYaml | nindent 4}}
   {{- end }}
   {{- range $key, $data := .Values.promptTemplates}}
@@ -25,10 +25,10 @@ data:
   {{- end }}
   gallery-models.sh: |-
     #!/bin/sh
-    MODELS="{{ .Values.models.loadFromGalleries | join "," }}"
+    GALLERY_MODELS="{{ .Values.models.loadFromGalleries | join "," }}"
 
-    if [ -n "$MODELS" ]; then
-      echo "$MODELS" | awk -F, '{for (i=1; i<=NF; i++) print $i}' | while read -r model; do
+    if [ -n "$GALLERY_MODELS" ]; then
+      echo "$GALLERY_MODELS" | awk -F, '{for (i=1; i<=NF; i++) print $i}' | while read -r model; do
         wget 127.0.0.1:8080/models/apply -q --header "Content-Type: application/json" --post-data "{\"id\":\"${model}\"}" -O -
       done
     fi

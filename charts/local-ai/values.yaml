@@ -74,13 +74,13 @@ models:
     model-gallery: github:go-skynet/model-gallery/index.yaml
     huggingface: github:go-skynet/model-gallery/huggingface.yaml
 
-  # Whether to force download models even if they already exist
-  forceDownload: false
-
   loadFromGalleries:
     []
     # - "model-gallery@lunademo"
     # - huggingface@thebloke__llama-2-7b-chat-gguf__llama-2-7b-chat.q4_0.gguf
+
+  # Whether to force download models even if they already exist
+  forceDownload: false
 
   # The list of URLs to download models from
   # Note: the name of the file will be the name of the loaded model
