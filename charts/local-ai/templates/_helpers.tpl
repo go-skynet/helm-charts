@@ -70,5 +70,5 @@ Preprocess the models.galleries values into what is expected by LocalAI
 {{- range $name, $url :=  .Values.models.galleries -}}
 {{- $galleries = append $galleries (dict "name" $name "url" $url) -}}
 {{- end -}}
-{{- $galleries | toJson | squote -}}
+{{- $galleries | toJson -}}
 {{- end }}

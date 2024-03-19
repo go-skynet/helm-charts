@@ -1,4 +1,8 @@
-{{- if .Values.models.configs }}
+{{- $numModelConfigs := .Values.models.configs | keys | len -}}
+{{- $numPromptTemplates := .Values.promptTemplates | keys | len -}}
+{{- if lt ((concat (.Values.models.configs | keys) (.Values.promptTemplates | keys)) | uniq | len ) (add $numModelConfigs $numPromptTemplates) -}}
+{{- fail "All object names within models.configs and promptTemplates must be unique" -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,4 +19,16 @@ data:
   {{ if or (hasSuffix $key ".yml") (hasSuffix $key ".yaml") }}{{ $key }}{{ else }}{{ $key }}.yaml{{ end }}: |-
     {{- $data | toYaml | nindent 4}}
   {{- end }}
-{{- end }}
+  {{- range $key, $data := .Values.promptTemplates}}
+  {{ $key }}: |-
+      {{- $data | nindent 4}}
+  {{- end }}
+  gallery-models.sh: |-
+    #!/bin/sh
+    MODELS="{{ .Values.models.loadFromGalleries | join "," }}"
+
+    if [ -n "$MODELS" ]; then
+      echo "$MODELS" | awk -F, '{for (i=1; i<=NF; i++) print $i}' | while read -r model; do
+        wget 127.0.0.1:8080/models/apply -q --header "Content-Type: application/json" --post-data "{\"id\":\"${model}\"}" -O -
+      done
+    fi

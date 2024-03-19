@@ -56,7 +56,8 @@ promptTemplates:
 
 # Models to download at runtime
 models:
-  configs: {}
+  configs:
+    {}
     # myModel:
     #   backend: llama
     #   context_size: 2048
@@ -71,10 +72,15 @@ models:
 
   galleries:
     model-gallery: github:go-skynet/model-gallery/index.yaml
-    huggingface: go-skynet/model-gallery/huggingface.yaml
+    huggingface: github:go-skynet/model-gallery/huggingface.yaml
 
   # Whether to force download models even if they already exist
   forceDownload: false
+
+  loadFromGalleries:
+    []
+    # - "model-gallery@lunademo"
+    # - huggingface@thebloke__llama-2-7b-chat-gguf__llama-2-7b-chat.q4_0.gguf
 
   # The list of URLs to download models from
   # Note: the name of the file will be the name of the loaded model

@@ -65,6 +65,8 @@
       value: {{ .Values.deployment.modelsPath }}
     - name: FOLDER_ANNOTATION
       value: "io.localai/target-directory"
+    - name: SCRIPT
+      value: {{ .Values.deployment.modelsPath }}/gallery-models.sh
   securityContext:
     runAsGroup: 1000
   volumeMounts:

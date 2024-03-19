@@ -24,10 +24,6 @@ spec:
       labels:
         app.kubernetes.io/name: {{ include "local-ai.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
-      annotations:
-        {{- if .Values.promptTemplates }}
-        checksum/config-prompt-templates: {{ include (print $.Template.BasePath "/configmap-prompt-templates.yaml") . | sha256sum }}
-        {{- end }}
     spec:
       {{- with .Values.deployment.runtimeClassName }}
       runtimeClassName: {{ . }}
@@ -77,27 +73,6 @@ spec:
             {{- toYaml .securityContext | nindent 6 }}
           {{- end }}
         {{- end }}
-        {{- end }}
-
-        {{- if .Values.promptTemplates }}
-        - name: prompt-templates
-          image: {{ .Values.deployment.prompt_templates.image }}
-          imagePullPolicy: {{ .Values.deployment.pullPolicy }}
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              cp -fL /prompt-templates/* /models
-          securityContext:
-            runAsGroup: 1000
-          volumeMounts:
-            - mountPath: /prompt-templates
-              name: prompt-templates
-            {{- range $key, $pvc := $rootPersistence }}
-              {{- if $pvc.enabled }}
-            - name: {{ $key }}
-              mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
-              {{- end }}
-            {{- end }}
         {{- end }}
         - name: download-model
           image: {{ .Values.deployment.download_model.image }}
@@ -202,7 +177,7 @@ spec:
               value: {{ quote $value }}
             {{- end }}
             - name: GALLERIES
-              value: {{ include "local-ai.galleries" . }}
+              value: {{ include "local-ai.galleries" . | squote }}
             - name: MODELS_PATH
               value: {{ .Values.deployment.modelsPath }}
           securityContext:
@@ -227,9 +202,6 @@ spec:
           emptyDir: {}
         {{- end }}
         {{- end }}
-        - name: prompt-templates
-          configMap:
-            name: {{ template "local-ai.fullname" . }}-prompt-templates
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
