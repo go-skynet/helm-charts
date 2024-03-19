@@ -1,9 +1,10 @@
 # yamllint disable rule:line-length
-{{- $urls := "" -}}
+{{- $urls := list -}}
 {{- $rootPersistence := .Values.persistence }}
 {{- range $idx, $model := .Values.models.list }}
-{{- $urls = printf "%s%s %s," $urls $model.url ($model.basicAuth | default "") }}
+{{- $urls = append $urls (printf "%s %s" $model.url ($model.basicAuth | default "")) }}
 {{- end }}
+{{- $urls = join "," $urls}}
 
 apiVersion: apps/v1
 kind: Deployment
