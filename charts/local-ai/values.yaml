@@ -34,6 +34,28 @@ resources:
   #   cpu: 100m
   #   memory: 128Mi
 
+# Model config to include
+modelsConfigs:
+  {}
+  # phi-2: |
+  #   name: phi-2
+  #   context_size: 2048
+  #   f16: true
+  #   mmap: true
+  #   trimsuffix: 
+  #   - "\n"
+  #   parameters:
+  #     model: phi-2.Q8_0.gguf
+  #     temperature: 0.2
+  #     top_k: 40
+  #     top_p: 0.95
+  #     seed: -1
+  #   template:
+  #     chat: &template |-
+  #       Instruct: {{.Input}}
+  #       Output:
+  #     completion: *template
+
 # Prompt templates to include
 # Note: the keys of this map will be the names of the prompt template files
 promptTemplates:

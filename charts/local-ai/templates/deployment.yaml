@@ -96,6 +96,31 @@ spec:
               {{- end }}
             {{- end }}
         {{- end }}
+        {{- if .Values.modelsConfigs }}
+        - name: models-configs
+          image: {{ .Values.deployment.prompt_templates.image }}
+          imagePullPolicy: {{ .Values.deployment.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              for file in /models-configs/*; do
+                filename=$(basename "$file")
+                if [[ $filename != *.yaml ]]; then
+                  cp -fL "$file" "/models/$filename.yaml"
+                else
+                  cp -fL "$file" "/models/$filename"
+                fi
+              done
+          volumeMounts:
+            - mountPath: /models-configs
+              name: models-configs
+            {{- range $key, $pvc := $rootPersistence }}
+              {{- if $pvc.enabled }}
+            - name: {{ $key }}
+              mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
+              {{- end }}
+            {{- end }}
+        {{- end }}
         - name: download-model
           image: {{ .Values.deployment.download_model.image }}
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
@@ -261,6 +286,9 @@ spec:
         - name: prompt-templates
           configMap:
             name: {{ template "local-ai.fullname" . }}-prompt-templates
+        - name: models-configs
+          configMap:
+            name: {{ template "local-ai.fullname" . }}-models-configs
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

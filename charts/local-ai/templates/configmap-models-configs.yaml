@@ -1,0 +1,11 @@
+{{- if .Values.modelsConfigs -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "local-ai.fullname" . }}-models-configs
+data:
+{{- range $key, $val := .Values.modelsConfigs }}
+  {{ $key }}: |-
+{{ $val | indent 4 }}
+{{- end }}
+{{- end -}}
