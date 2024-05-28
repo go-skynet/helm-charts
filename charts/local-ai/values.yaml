@@ -107,6 +107,7 @@ ingress:
   className: ""
   annotations:
     {}
+    # nginx.ingress.kubernetes.io/proxy-body-size: "25m" # This value determines the maxmimum uploadable file size
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
