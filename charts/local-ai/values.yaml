@@ -34,6 +34,16 @@ resources:
   #   cpu: 100m
   #   memory: 128Mi
 
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+
+
 # Prompt templates to include
 # Note: the keys of this map will be the names of the prompt template files
 promptTemplates:
@@ -46,14 +56,37 @@ promptTemplates:
 
 # Models to download at runtime
 models:
+  configs:
+    {}
+    # myModel:
+    #   backend: llama
+    #   context_size: 2048
+    #   name: myModel
+    #   parameters:
+    #     model: some_file.gguf
+    #     temperature: 0.1
+    #     top_p: 0.95
+    #   threads: 5
+    #   f16: true
+    #   gpu_layers: 33
+
+  galleries:
+    model-gallery: github:go-skynet/model-gallery/index.yaml
+    huggingface: github:go-skynet/model-gallery/huggingface.yaml
+
+  loadFromGalleries:
+    []
+    # - "model-gallery@lunademo"
+    # - huggingface@thebloke__llama-2-7b-chat-gguf__llama-2-7b-chat.q4_0.gguf
+
   # Whether to force download models even if they already exist
   forceDownload: false
 
   # The list of URLs to download models from
   # Note: the name of the file will be the name of the loaded model
   list:
-  #  - url: "https://gpt4all.io/models/ggml-gpt4all-j.bin"
-      # basicAuth: base64EncodedCredentials
+    # - url: "https://gpt4all.io/models/ggml-gpt4all-j.bin"
+    #   basicAuth: base64EncodedCredentials
 
 initContainers: []
 # Example:
@@ -65,6 +98,7 @@ initContainers: []
 #     - name: my-volume
 #       mountPath: /path/to/mount
 
+enableModelSyncronizationSidecar: true
 sidecarContainers: []
 # Example:
 # - name: my-sidecar-container
@@ -119,6 +153,31 @@ ingress:
   #  - secretName: chart-example-tls
   #    hosts:
   #      - chart-example.local
+
+rbac:
+  create: true
+  ## Use an existing ClusterRole/Role (depending on rbac.namespaced false/true)
+  # useExistingRole: name-of-some-role
+  # useExistingClusterRole: name-of-some-clusterRole
+  namespaced: false
+  extraRoleRules: []
+  # - apiGroups: []
+  #   resources: []
+  #   verbs: []
+  extraClusterRoleRules: []
+  # - apiGroups: []
+  #   resources: []
+  #   verbs: []
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
 
 nodeSelector: {}
 

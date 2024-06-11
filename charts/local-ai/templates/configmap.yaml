@@ -1,0 +1,34 @@
+{{- $numModelConfigs := .Values.models.configs | keys | len -}}
+{{- $numPromptTemplates := .Values.promptTemplates | keys | len -}}
+{{- if lt ((concat (.Values.models.configs | keys) (.Values.promptTemplates | keys)) | uniq | len ) (add $numModelConfigs $numPromptTemplates) -}}
+{{- fail "All object names within models.configs and promptTemplates must be unique" -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "local-ai.fullname" . }}-models
+  labels:
+    {{- include "local-ai.labels" . | nindent 4 }}
+    io.localai/model_source: "1"
+  {{- with .Values.annotations }}
+  annotations:
+    io.localai/target-directory: /models
+  {{- end }}
+data:
+  {{- range $key, $data := .Values.models.configs}}
+  {{ if or (hasSuffix ".yml" $key) (hasSuffix ".yaml" $key) }}{{ $key }}{{ else }}{{ $key }}.yaml{{ end }}: |-
+    {{- $data | toYaml | nindent 4}}
+  {{- end }}
+  {{- range $key, $data := .Values.promptTemplates}}
+  {{ $key }}: |-
+      {{- $data | nindent 4}}
+  {{- end }}
+  gallery-models.sh: |-
+    #!/bin/sh
+    GALLERY_MODELS="{{ .Values.models.loadFromGalleries | join "," }}"
+
+    if [ -n "$GALLERY_MODELS" ]; then
+      echo "$GALLERY_MODELS" | awk -F, '{for (i=1; i<=NF; i++) print $i}' | while read -r model; do
+        wget 127.0.0.1:8080/models/apply -q --header "Content-Type: application/json" --post-data "{\"id\":\"${model}\"}" -O -
+      done
+    fi

@@ -1,0 +1,19 @@
+{{- if and .Values.rbac.create (not .Values.rbac.useExistingRole) -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "local-ai.fullname" . }}
+  labels:
+    {{- include "local-ai.labels" . | nindent 4 }}
+  {{- with .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups: [""] # "" indicates the core API group
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "watch", "list"]
+  {{- with .Values.rbac.extraRoleRules }}
+  {{- toYaml . | nindent 2 }}
+  {{- end}}
+{{- end }}

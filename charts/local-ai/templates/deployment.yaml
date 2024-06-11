@@ -1,9 +1,10 @@
 # yamllint disable rule:line-length
-{{- $urls := "" -}}
+{{- $urls := list -}}
 {{- $rootPersistence := .Values.persistence }}
 {{- range $idx, $model := .Values.models.list }}
-{{- $urls = printf "%s%s %s," $urls $model.url ($model.basicAuth | default "") }}
+{{- $urls = append $urls (printf "%s %s" $model.url ($model.basicAuth | default "")) }}
 {{- end }}
+{{- $urls = join "," $urls}}
 
 apiVersion: apps/v1
 kind: Deployment
@@ -15,8 +16,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "local-ai.name" . }}
-      app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- include "local-ai.selectorLabels" . | nindent 6 }}
   replicas: {{ .Values.replicaCount }}
   template:
     metadata:
@@ -24,10 +24,6 @@ spec:
       labels:
         app.kubernetes.io/name: {{ include "local-ai.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
-      annotations:
-        {{- if .Values.promptTemplates }}
-        checksum/config-prompt-templates: {{ include (print $.Template.BasePath "/configmap-prompt-templates.yaml") . | sha256sum }}
-        {{- end }}
     spec:
       {{- with .Values.deployment.runtimeClassName }}
       runtimeClassName: {{ . }}
@@ -36,6 +32,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      serviceAccountName: {{ include "local-ai.serviceAccountName" . }}
       initContainers:
         # Additional initContainers from values.yaml
         {{- if .Values.initContainers }}
@@ -77,25 +74,6 @@ spec:
           {{- end }}
         {{- end }}
         {{- end }}
-
-        {{- if .Values.promptTemplates }}
-        - name: prompt-templates
-          image: {{ .Values.deployment.prompt_templates.image }}
-          imagePullPolicy: {{ .Values.deployment.pullPolicy }}
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              cp -fL /prompt-templates/* /models
-          volumeMounts:
-            - mountPath: /prompt-templates
-              name: prompt-templates
-            {{- range $key, $pvc := $rootPersistence }}
-              {{- if $pvc.enabled }}
-            - name: {{ $key }}
-              mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
-              {{- end }}
-            {{- end }}
-        {{- end }}
         - name: download-model
           image: {{ .Values.deployment.download_model.image }}
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
@@ -115,7 +93,7 @@ spec:
 
               validate_url() {
                   local url=$1
-                  local regex='^(https?|ftp)://[a-zA-Z0-9.-]+(:[a-zA-Z0-9.-]+)?(/[a-zA-Z0-9.-]*)*$'
+                  local regex='^(https?|ftp)://[a-zA-Z0-9.-]+(:[a-zA-Z0-9.-]+)?(/[a-zA-Z0-9._-]*)*$'
                   if [[ $url =~ $regex ]]; then
                       return 0 # URL is valid
                   else
@@ -180,68 +158,30 @@ spec:
             {{- end }}
 
       containers:
-        # Sidecar containers from values.yaml
-        {{- range .Values.sidecarContainers }}
-        - name: {{ .name }}
-          image: {{ .image }}
-          imagePullPolicy: {{ .imagePullPolicy }}
-          {{- if .command }}
-          command:
-            {{- toYaml .command | nindent 12 }}
-          {{- end }}
-          {{- if .args }}
-          args:
-            {{- toYaml .args | nindent 6 }}
-          {{- end }}
-          {{- if .env }}
-          env:
-            {{- toYaml .env | nindent 6 }}
-          {{- end }}
-          {{- if .ports }}
-          ports:
-            {{- toYaml .ports | nindent 6 }}
-          {{- end }}
-          {{- if .resources }}
-          resources:
-            {{- toYaml .resources | nindent 6 }}
-          {{- end }}
-          {{- if or .volumeMounts $rootPersistence }}
-          volumeMounts:
-          {{- if .volumeMounts }}
-            {{- toYaml .volumeMounts | nindent 6 }}
-          {{- end }}
-          {{- range $key, $pvc := $rootPersistence }}
-          {{- if $pvc.enabled }}
-            - name: {{ $key }}
-              mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
-          {{- end }}
-          {{- end }}
-          {{- end }}
-          {{- if .livenessProbe }}
-          livenessProbe:
-            {{- toYaml .livenessProbe | nindent 6 }}
-          {{- end }}
-          {{- if .readinessProbe }}
-          readinessProbe:
-            {{- toYaml .readinessProbe | nindent 6 }}
-          {{- end }}
-          {{- if .securityContext }}
-          securityContext:
-            {{- toYaml .securityContext | nindent 6 }}
-          {{- end }}
-        {{- end }}
         - name: {{ template "local-ai.fullname" . }}
           image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}"
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
           env:
             {{- range $key, $value := .Values.deployment.env }}
             - name: {{ $key | upper }}
               value: {{ quote $value }}
             {{- end }}
+            - name: GALLERIES
+              value: {{ include "local-ai.galleries" . | squote }}
             - name: MODELS_PATH
               value: {{ .Values.deployment.modelsPath }}
+          securityContext:
+            runAsGroup: 1000
           volumeMounts:
             {{- range $key, $pvc := $rootPersistence}}
               {{- if $pvc.enabled }}
@@ -249,18 +189,19 @@ spec:
               mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
               {{- end }}
             {{- end }}
+        {{ include "local-ai.sidecars" . | nindent 8 }}
       {{- if $rootPersistence}}
       volumes:
         {{- range $key, $pvc := $rootPersistence}}
-          {{- if $pvc.enabled }}
+        {{- if $pvc.enabled }}
         - name: {{ $key }}
           persistentVolumeClaim:
             claimName: {{ printf "%s-%s" (include "local-ai.fullname" $) $key }}
-          {{- end }}
+        {{- else }}
+        - name: {{ $key }}
+          emptyDir: {}
         {{- end }}
-        - name: prompt-templates
-          configMap:
-            name: {{ template "local-ai.fullname" . }}-prompt-templates
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
