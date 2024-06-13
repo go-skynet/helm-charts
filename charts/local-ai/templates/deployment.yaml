@@ -242,6 +242,9 @@ spec:
             {{- end }}
             - name: MODELS_PATH
               value: {{ .Values.deployment.modelsPath }}
+          {{- if .Values.deployment.secretEnv }}
+            {{- toYaml .Values.deployment.secretEnv | nindent 12 }}
+          {{- end}}
           volumeMounts:
             {{- range $key, $pvc := $rootPersistence}}
               {{- if $pvc.enabled }}

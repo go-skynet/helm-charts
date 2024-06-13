@@ -7,6 +7,15 @@ deployment:
   env:
     threads: 4
     context_size: 512
+
+  # # Inject Secrets into Environment:
+  # secretEnv:
+  # - name: HF_TOKEN
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: some-secret
+  #       key: hf-token
+
   modelsPath: "/models"
   download_model:
     # To use cloud provided (eg AWS) image, provide it like: 1234356789.dkr.ecr.us-REGION-X.amazonaws.com/busybox
