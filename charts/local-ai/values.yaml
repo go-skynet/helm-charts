@@ -112,14 +112,14 @@ persistence:
   models: 
     enabled: true
     annotations: {}
-    storageClass: hostPath
+    storageClass: "" # Use default storage class
     accessModes: ReadWriteMany
     size: 10Gi
     globalMount: /models
   output:
     enabled: true
     annotations: {}
-    storageClass: hostPath
+    storageClass: "" # Use default storage class
     accessModes: ReadWriteMany
     size: 5Gi
     globalMount: /tmp/generated
@@ -128,7 +128,7 @@ service:
   type: ClusterIP
   # If deferring to an internal only load balancer
   # externalTrafficPolicy: Local
-  port: 80
+  port: 8080
   annotations: {}
   # If using an AWS load balancer, you'll need to override the default 60s load balancer idle timeout
   # service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "1200"
