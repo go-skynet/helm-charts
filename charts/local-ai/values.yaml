@@ -128,7 +128,7 @@ service:
   type: ClusterIP
   # If deferring to an internal only load balancer
   # externalTrafficPolicy: Local
-  port: 8080
+  port: 80
   annotations: {}
   # If using an AWS load balancer, you'll need to override the default 60s load balancer idle timeout
   # service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "1200"
