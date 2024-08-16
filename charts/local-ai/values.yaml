@@ -112,14 +112,14 @@ persistence:
   models: 
     enabled: true
     annotations: {}
-    storageClass: hostPath
+    storageClass: "" # Use default storage class
     accessModes: ReadWriteMany
     size: 10Gi
     globalMount: /models
   output:
     enabled: true
     annotations: {}
-    storageClass: hostPath
+    storageClass: "" # Use default storage class
     accessModes: ReadWriteMany
     size: 5Gi
     globalMount: /tmp/generated
