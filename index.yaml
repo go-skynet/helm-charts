@@ -3,6 +3,16 @@ entries:
   local-ai:
   - apiVersion: v2
     appVersion: "1.4"
+    created: "2024-08-16T07:51:38.732556528Z"
+    description: A Helm chart for deploying LocalAI to a Kubernetes cluster
+    digest: 617054906fece96a2bd78e060cd0d6f1b20f6e4c25e67636f4a5d16dcba3f19e
+    name: local-ai
+    type: application
+    urls:
+    - https://github.com/go-skynet/helm-charts/releases/download/local-ai-3.3.1/local-ai-3.3.1.tgz
+    version: 3.3.1
+  - apiVersion: v2
+    appVersion: "1.4"
     created: "2024-07-03T13:13:24.492257443Z"
     description: A Helm chart for deploying LocalAI to a Kubernetes cluster
     digest: fafa5a633bf8840b1d5bb90f889dddd785a52b9b3a9dbb994bac64d0981da700
@@ -121,4 +131,4 @@ entries:
     urls:
     - https://github.com/go-skynet/helm-charts/releases/download/local-ai-1.0.1/local-ai-1.0.1.tgz
     version: 1.0.1
-generated: "2024-07-03T13:13:24.492345095Z"
+generated: "2024-08-16T07:51:38.732654552Z"
