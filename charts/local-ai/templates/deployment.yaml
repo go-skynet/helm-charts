@@ -18,6 +18,10 @@ spec:
       app.kubernetes.io/name: {{ include "local-ai.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
   replicas: {{ .Values.replicaCount }}
+  {{- with .Values.deployment.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   template:
     metadata:
       name: {{ template "local-ai.fullname" . }}
