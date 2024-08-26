@@ -2,7 +2,7 @@
 {{- $urls := "" -}}
 {{- $rootPersistence := .Values.persistence }}
 {{- range $idx, $model := .Values.models.list }}
-{{- $urls = printf "%s%s %s," $urls $model.url ($model.basicAuth | default "") }}
+{{- $urls = printf "%s%s %s," $urls $model.url ($model.basicAuth | default "") | trimSuffix "," | trim }}
 {{- end }}
 
 apiVersion: apps/v1
@@ -140,7 +140,7 @@ spec:
 
               validate_url() {
                   local url=$1
-                  local regex='^(https?|ftp)://[a-zA-Z0-9.-]+(:[a-zA-Z0-9.-]+)?(/[a-zA-Z0-9.-]*)*$'
+                  local regex='^(https?|ftp):\/\/[a-zA-Z0-9.-_]+(:[a-zA-Z0-9.-]+)?(\/[a-zA-Z0-9._-]*)*$'
                   if [[ $url =~ $regex ]]; then
                       return 0 # URL is valid
                   else
