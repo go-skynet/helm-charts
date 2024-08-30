@@ -2,8 +2,9 @@
 {{- $urls := "" -}}
 {{- $rootPersistence := .Values.persistence }}
 {{- range $idx, $model := .Values.models.list }}
-{{- $urls = printf "%s%s %s," $urls $model.url ($model.basicAuth | default "") | trimSuffix "," | trim }}
+{{- $urls = printf "%s%s %s," $urls $model.url ($model.basicAuth | default "") }}
 {{- end }}
+{{- $urls = $urls | trimSuffix "," | trim }}
 
 apiVersion: apps/v1
 kind: Deployment
