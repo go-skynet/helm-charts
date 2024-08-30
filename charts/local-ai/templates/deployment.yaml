@@ -141,7 +141,7 @@ spec:
 
               validate_url() {
                   local url=$1
-                  local regex='^(https?|ftp):\/\/[a-zA-Z0-9.-_]+(:[a-zA-Z0-9.-]+)?(\/[a-zA-Z0-9._-]*)*$'
+                  local regex='^(https?|ftp):\/\/[a-zA-Z0-9._-]+(:[a-zA-Z0-9.-]+)?(\/[a-zA-Z0-9._-]*)*$'
                   if [[ $url =~ $regex ]]; then
                       return 0 # URL is valid
                   else
