@@ -13,7 +13,8 @@ cat <<EOF > values.yaml
 replicaCount: 1
 
 deployment:
-  image: quay.io/go-skynet/local-ai:latest
+  image: quay.io/go-skynet/local-ai
+  tag: latest
   env:
     threads: 4
     context_size: 512

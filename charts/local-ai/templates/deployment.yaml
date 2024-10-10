@@ -1,9 +1,5 @@
 # yamllint disable rule:line-length
-{{- $urls := "" -}}
 {{- $rootPersistence := .Values.persistence }}
-{{- range $idx, $model := .Values.models.list }}
-{{- $urls = printf "%s%s %s," $urls $model.url ($model.basicAuth | default "") }}
-{{- end }}
 
 apiVersion: apps/v1
 kind: Deployment
@@ -121,89 +117,6 @@ spec:
               {{- end }}
             {{- end }}
         {{- end }}
-        - name: download-model
-          image: {{ .Values.deployment.download_model.image }}
-          imagePullPolicy: {{ .Values.deployment.pullPolicy }}
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              MODEL_DIR={{ .Values.deployment.modelsPath }}
-              FORCE_DOWNLOAD={{ .Values.models.forceDownload }}
-              URLS="{{ $urls }}"
-              LOCK_DIR=/tmp/model-download-locks
-
-              mkdir -p "$MODEL_DIR"
-              mkdir -p "$LOCK_DIR"
-              mkdir -p "/tmp/generated/images"
-              mkdir -p "/tmp/generated/audio"
-              rm -rf "/models/lost+found"
-
-              validate_url() {
-                  local url=$1
-                  local regex='^(https?|ftp)://[a-zA-Z0-9.-]+(:[a-zA-Z0-9.-]+)?(/[a-zA-Z0-9.-]*)*$'
-                  if [[ $url =~ $regex ]]; then
-                      return 0 # URL is valid
-                  else
-                      return 1 # URL is invalid
-                  fi
-              }
-
-              echo "List of URLs:"
-              echo "$URLS"
-
-              echo "$URLS" | awk -F, '{for (i=1; i<=NF; i++) print $i}' | while read -r line; do
-                  url=$(echo "$line" | awk '{print $1}')
-                  auth=$(echo "$line" | awk '{print $2}')
-                  full_filename=$(basename "$url" .bin)
-                  short_filename=$(echo "$full_filename" | cut -c1-20)
-                  hash=$(echo "$full_filename" | sha256sum | cut -c1-12)
-                  filename="${short_filename}_${hash}"
-                  lockfile="$LOCK_DIR/$filename.lock"
-
-                  # Validate URL
-                  if ! validate_url "$url"; then
-                      echo "Invalid URL: $url. Skipping download."
-                      continue
-                  fi
-
-                  if [ -e "$MODEL_DIR/$filename" ]; then
-                      echo "File $filename already exists. Skipping download."
-                      continue
-                  fi
-
-                  if [ -e "$lockfile" ]; then
-                      echo "Another pod is downloading $filename. Waiting for download to complete."
-                      while [ -e "$lockfile" ]; do sleep 1; done
-                      continue
-                  fi
-
-                  touch "$lockfile"
-
-                  echo "Downloading $filename"
-                  if [ -n "$auth" ]; then
-                      wget --header "Authorization: Basic $auth" "$url" -O "$MODEL_DIR/$filename"
-                  else
-                      wget "$url" -O "$MODEL_DIR/$filename"
-                  fi
-
-                  if [ "$?" -ne 0 ]; then
-                      echo "Download failed."
-                      rm -f "$lockfile"
-                      exit 1
-                  else
-                      echo "Download completed."
-                      rm -f "$lockfile"
-                  fi
-              done
-
-          volumeMounts:
-            {{- range $key, $pvc := $rootPersistence }}
-            {{- if $pvc.enabled }}
-            - name: {{ $key }}
-              mountPath: {{ $pvc.globalMount | default (print "/" $key) }}
-            {{- end }}
-            {{- end }}
-
       containers:
         # Sidecar containers from values.yaml
         {{- range .Values.sidecarContainers }}
