@@ -19,8 +19,9 @@ metadata:
   annotations: {{- toYaml . | nindent 4 -}}
   {{- end }}
 spec:
-  accessModes:
-    - {{ required "accessMode is required for PVC" $pvcObject.accessMode | quote }}
+  {{- with required "accessModes is required for PVC" $pvcObject.accessModes }}
+  accessModes: {{- toYaml . | nindent 4 -}}
+  {{- end }}
   resources:
     requests:
       storage: {{ required "size is required for PVC" $pvcObject.size | quote }}
