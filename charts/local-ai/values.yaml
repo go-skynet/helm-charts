@@ -2,8 +2,8 @@ replicaCount: 1
 
 deployment:
   image:
-    repository: quay.io/go-skynet/local-ai  # Example: "docker.io/myapp"
-    tag: latest    
+    repository: quay.io/go-skynet/local-ai
+    tag: latest    # Use the appropriate tag. E.g. for cpu only: "latest-cpu"
   env:
     threads: 4
     context_size: 512
@@ -99,14 +99,16 @@ persistence:
     enabled: true
     annotations: {}
     storageClass: "" # Use default storage class
-    accessModes: ReadWriteMany
+    accessModes:
+      - ReadWriteMany
     size: 10Gi
     globalMount: /models
   output:
     enabled: true
     annotations: {}
     storageClass: "" # Use default storage class
-    accessModes: ReadWriteMany
+    accessModes:
+      - ReadWriteMany
     size: 5Gi
     globalMount: /tmp/generated
 
