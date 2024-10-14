@@ -8,6 +8,11 @@ deployment:
     threads: 4
     context_size: 512
 
+  # # Override default command or args passed in
+  # command: ["/bin/sh", "-c", "/build/entrypoint.sh"]
+  # args:
+  #   - --p2p
+
   # # Inject Secrets into Environment:
   # secretEnv:
   # - name: HF_TOKEN

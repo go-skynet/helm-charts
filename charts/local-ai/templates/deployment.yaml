@@ -183,6 +183,17 @@ spec:
           {{- if .Values.deployment.secretEnv }}
             {{- toYaml .Values.deployment.secretEnv | nindent 12 }}
           {{- end}}
+          command:
+            {{- if .Values.deployment.command }}
+            {{- toYaml .Values.deployment.command | nindent 12 }}
+            {{- else }}
+            - "/bin/bash"
+            - "-c"
+            - "/build/entrypoint.sh"
+            {{- end }}
+            {{- if .Values.deployment.args }}
+            {{- toYaml .Values.deployment.args | nindent 12 }}
+            {{- end }}
           volumeMounts:
             {{- range $key, $pvc := $rootPersistence}}
               {{- if $pvc.enabled }}
