@@ -1,9 +1,13 @@
-{{- range $key, $pvc := .Values.persistence -}}
-  {{- if $pvc.enabled -}}
-    {{- $pvcObject := dict "name" (printf "%s-%s" (include "local-ai.fullname" $) $key) "accessModes" $pvc.accessModes "size" $pvc.size "storageClass" $pvc.storageClass "annotations" $pvc.annotations "labels" $pvc.labels -}}
-
-    {{- /* Include the PVC template */ -}}
-    {{- include "local-ai.pvc" (dict "rootContext" $ "object" $pvcObject) | nindent 0 -}}
+{{- range $component, $componentPersistence := .Values.persistence -}}
+  {{- range $key, $pvc := $componentPersistence -}}
+    {{- if hasKey $.Values.deployment $component -}}
+      {{- $deploymentObject := get $.Values.deployment $component -}}
+      {{- if $deploymentObject.enabled -}}
+        {{- if $pvc.enabled -}}
+          {{- $pvcObject := dict "name" (printf "%s-%s-%s" (include "local-ai.fullname" $) $component $key) "accessModes" $pvc.accessModes "size" $pvc.size "storageClass" $pvc.storageClass "annotations" $pvc.annotations "labels" $pvc.labels -}}
+          {{- include "local-ai.pvc" (dict "rootContext" $ "object" $pvcObject) | nindent 0 -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
   {{- end -}}
 {{- end -}}
-

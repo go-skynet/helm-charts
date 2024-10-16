@@ -3,6 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ template "local-ai.fullname" . }}-prompt-templates
+  namespace: {{ .Release.Namespace | quote }}
 data:
 {{- range $key, $val := .Values.promptTemplates }}
   {{ $key }}: |-
