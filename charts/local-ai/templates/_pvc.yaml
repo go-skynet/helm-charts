@@ -12,6 +12,7 @@ kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
   name: {{ $pvcObject.name }}
+  namespace: {{ $rootContext.Release.Namespace | quote }}
   {{- with $labels }}
   labels: {{- toYaml . | nindent 4 -}}
   {{- end }}

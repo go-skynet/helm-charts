@@ -10,15 +10,62 @@ helm repo add go-skynet https://go-skynet.github.io/helm-charts/
 Create a `values.yaml` file for the LocalAI chart and customize as needed:
 ```bash
 cat <<EOF > values.yaml
-replicaCount: 1
-
 deployment:
-  image: quay.io/go-skynet/local-ai
-  tag: latest
-  env:
-    threads: 4
-    context_size: 512
+  main:
+    enabled: true
+    replicaCount: 1
+    #args:
+    #  - --p2p # enable p2p mode
+    env:
+      P2P_TOKEN: ""
+  worker:
+    enabled: false
+    replicaCount: 2
+    # args:  # enable p2p worker mode
+    #   - worker
+    #   - p2p-llama-cpp-rpc
+    #   - --llama-cpp-args=-m4096
+    env:
+      P2P_TOKEN: ""
+
+  runtimeClassName: ""
+  image:
+    repository: quay.io/go-skynet/local-ai
+    tag: latest
+  pullPolicy: IfNotPresent
   modelsPath: "/models"
+  imagePullSecrets: []
+  prompt_templates:
+    image: busybox
+
+modelsConfigs: {}
+# Example:
+#   phi-2: |
+#     name: phi-2
+#     context_size: 2048
+#     f16: true
+#     mmap: true
+#     trimsuffix:
+#     - "\n"
+#     parameters:
+#       model: phi-2.Q8_0.gguf
+#       temperature: 0.2
+#       top_k: 40
+#       top_p: 0.95
+#       seed: -1
+#     template:
+#       chat: &template |-
+#         Instruct: {{.Input}}
+#         Output:
+#       completion: *template
+
+promptTemplates: {}
+# Example:
+#   ggml-gpt4all-j.tmpl: |
+#     The prompt below is a question to answer, a task to complete, or a conversation to respond to; decide which and write an appropriate response.
+#     ### Prompt:
+#     {{.Input}}
+#     ### Response:
 
 resources:
   {}
@@ -26,53 +73,49 @@ resources:
   # choice for the user. This also increases chances charts run on environments with little
   # resources, such as Minikube. If you do want to specify resources, uncomment the following
   # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
+  # Example:
+  #   limits:
+  #     cpu: 100m
+  #     memory: 128Mi
+  #   requests:
+  #     cpu: 100m
+  #     memory: 128Mi
 
-# Prompt templates to include
-# Note: the keys of this map will be the names of the prompt template files
-promptTemplates:
-  {}
-  # ggml-gpt4all-j.tmpl: |
-  #   The prompt below is a question to answer, a task to complete, or a conversation to respond to; decide which and write an appropriate response.
-  #   ### Prompt:
-  #   {{.Input}}
-  #   ### Response:
-
-# Models to download at runtime
-models:
-  # Whether to force download models even if they already exist
-  forceDownload: false
-
-  # The list of URLs to download models from
-  # Note: the name of the file will be the name of the loaded model
-  list:
-    - url: "https://gpt4all.io/models/ggml-gpt4all-j.bin"
-      # basicAuth: base64EncodedCredentials
-
-  # Persistent storage for models and prompt templates.
-  # PVC and HostPath are mutually exclusive. If both are enabled,
-  # PVC configuration takes precedence. If neither are enabled, ephemeral
-  # storage is used.
-  persistence:
-    pvc:
-      enabled: false
-      size: 6Gi
+persistence:
+  main:
+    models:
+      enabled: true
+      annotations: {}
+      storageClass: ""
       accessModes:
         - ReadWriteOnce
-
+      size: 10Gi
+      globalMount: /models
+    output:
+      enabled: true
       annotations: {}
-
-      # Optional
-      storageClass: ~
-
-    hostPath:
-      enabled: false
-      path: "/models"
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 5Gi
+      globalMount: /tmp/generated
+  worker:
+    models:
+      enabled: true
+      annotations: {}
+      storageClass: ""
+      accessModes:
+        - ReadWriteMany
+      size: 10Gi
+      globalMount: /models
+    output:
+      enabled: true
+      annotations: {}
+      storageClass: ""
+      accessModes:
+        - ReadWriteMany
+      size: 5Gi
+      globalMount: /tmp/generated
 
 service:
   type: ClusterIP
@@ -84,8 +127,8 @@ service:
 ingress:
   enabled: false
   className: ""
-  annotations:
-    {}
+  annotations: {}
+    # nginx.ingress.kubernetes.io/proxy-body-size: "25m" # This value determines the maxmimum uploadable file size
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
@@ -99,13 +142,38 @@ ingress:
   #      - chart-example.local
 
 nodeSelector: {}
+# Using Node Feature Discovery and the correct operator (e.g. nvidia-operator or intel-gpu-plugin), you can schedule nodes
+#   nvidia.com/gpu.present: 'true'
 
 tolerations: []
 
 affinity: {}
+# Example affinity that ensures no pods are scheduled on the same node:
+#   podAntiAffinity:
+#     requiredDuringSchedulingIgnoredDuringExecution:
+#       - labelSelector:
+#           matchExpressions:
+#             - key: app.kubernetes.io/name
+#               operator: In
+#               values:
+#                 - localai
+#         topologyKey: kubernetes.io/hostname
 EOF
 ```
 Install the LocalAI chart:
 ```bash
 helm install local-ai go-skynet/local-ai -f values.yaml
 ```
+
+### Distributed Inference
+
+LocalAI supports distributed inference with the `worker` deployment. This functionality enables LocalAI to distribute inference requests across multiple worker nodes, improving efficiency and performance. Nodes are automatically discovered and connect via P2P using a shared token, ensuring secure and private communication between the nodes in the network.
+
+LocalAI supports two modes of distributed inference via P2P:
+
+- **Federated Mode**: Requests are shared between the cluster and routed to a single worker node in the network based on the load balancer's decision.
+- **Worker Mode** (aka "model sharding" or "splitting weights"): Requests are processed by all the workers, which contribute to the final inference result by sharing the model weights.
+
+To enable distributed inference, set `deployment.worker.enabled` to `true` and specify the desired number of worker replicas in `deployment.worker.replicaCount`. Additionally, provide the same `P2P_TOKEN` in both the `deployment.main.env` and `deployment.worker.env` sections.
+
+For more details on configuring and using distributed inference, refer to the [Distributed Inference documentation](https://localai.io/features/distribute/).

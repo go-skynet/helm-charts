@@ -12,6 +12,7 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: {{ include "local-ai.name" . }}
+    app.kubernetes.io/component: main
   type: "{{ .Values.service.type }}"
 {{- if .Values.service.externalTrafficPolicy }}
   externalTrafficPolicy: {{ .Values.service.externalTrafficPolicy }}

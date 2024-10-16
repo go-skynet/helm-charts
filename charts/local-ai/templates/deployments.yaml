@@ -1,0 +1,11 @@
+{{- $rootPersistence := .Values.persistence }}
+
+{{- if .Values.deployment.main.enabled }}
+{{- $mainDeployment := merge dict .Values.deployment.main (dict "component" "main" "volumeMount" $rootPersistence.main.globalMount "pvcName" (printf "%s-main" (include "local-ai.fullname" .))) }}
+{{- include "local-ai.deployment" (dict "rootContext" . "object" $mainDeployment) | nindent 0 }}
+{{- end }}
+
+{{- if .Values.deployment.worker.enabled }}
+{{- $workerDeployment := merge dict .Values.deployment.worker (dict "component" "worker" "volumeMount" $rootPersistence.worker.globalMount "pvcName" (printf "%s-worker" (include "local-ai.fullname" .))) }}
+{{- include "local-ai.deployment" (dict "rootContext" . "object" $workerDeployment) | nindent 0 }}
+{{- end }}
