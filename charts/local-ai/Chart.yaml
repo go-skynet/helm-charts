@@ -3,4 +3,4 @@ appVersion: 2.23
 description: A Helm chart for deploying LocalAI to a Kubernetes cluster
 name: local-ai
 type: application
-version: 3.4.1
+version: 3.4.2
