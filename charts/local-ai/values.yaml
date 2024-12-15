@@ -16,6 +16,13 @@ deployment:
   #       name: some-secret
   #       key: hf-token
 
+  # # Set strategy for Deployment. The default values are below
+  # strategy:
+  #   type: RollingUpdate
+  #   rollingUpdate:
+  #     maxSurge: 25%
+  #     maxUnavailable: 25%
+
   modelsPath: "/models"
   prompt_templates:
     # To use cloud provided (eg AWS) image, provide it like: 1234356789.dkr.ecr.us-REGION-X.amazonaws.com/busybox
