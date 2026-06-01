@@ -173,7 +173,7 @@ spec:
           {{- end }}
         {{- end }}
         - name: {{ template "local-ai.fullname" . }}
-          image: "{{ .Values.deployment.image.repository }}:{{ .Values.deployment.image.tag }}"
+          image: {{ .Values.deployment.image.repository }}{{ if .Values.deployment.image.tag }}:{{ .Values.deployment.image.tag }}{{ end }}{{ if .Values.deployment.image.digest }}@{{ .Values.deployment.image.digest }}{{ end }}
           imagePullPolicy: {{ .Values.deployment.pullPolicy }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
