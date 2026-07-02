@@ -110,14 +110,27 @@ persistence:
       - ReadWriteMany
     size: 10Gi
     globalMount: /models
-  configuration: 
+
+  backends: 
     enabled: true
     annotations: {}
     storageClass: "" # Use default storage class
     accessModes:
       - ReadWriteMany
     size: 100Mi
+    globalMount: /backends
+
+  # localai settings set via Web-UI
+  configuration: 
+    enabled: true
+    annotations: {}
+    storageClass: "" # Use default storage class
+    accessModes:
+      - ReadWriteMany
+    size: 10Mi
     globalMount: /configuration
+  
+  # Outputs eg. for image generation
   output:
     enabled: true
     annotations: {}
