@@ -110,6 +110,14 @@ persistence:
       - ReadWriteMany
     size: 10Gi
     globalMount: /models
+  configuration: 
+    enabled: true
+    annotations: {}
+    storageClass: "" # Use default storage class
+    accessModes:
+      - ReadWriteMany
+    size: 100Mi
+    globalMount: /configuration
   output:
     enabled: true
     annotations: {}
