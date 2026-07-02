@@ -117,7 +117,7 @@ persistence:
     storageClass: "" # Use default storage class
     accessModes:
       - ReadWriteMany
-    size: 100Mi
+    size: 10Gi
     globalMount: /backends
 
   # localai settings set via Web-UI
