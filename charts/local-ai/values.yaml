@@ -177,17 +177,6 @@ service:
   # If using an AWS load balancer, you'll need to override the default 60s load balancer idle timeout
   # service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "1200"
 
-# ServiceMonitor configuration for Prometheus Operator
-serviceMonitor:
-  enabled: true
-  # namespace: monitoring
-  # interval: 30s
-  # scrapeTimeout: 10s
-  # labels:
-  #   release: prometheus
-  # annotations: {}
-  # scrapeClass: prometheus
-
 ingress:
   enabled: false
   className: ""
