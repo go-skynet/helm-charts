@@ -1,5 +1,32 @@
 replicaCount: 1
 
+# Pod-level securityContext, applied to spec.template.spec.securityContext.
+# Override to fit your cluster's Pod Security Standards (e.g. restricted).
+podSecurityContext:
+  fsGroup: 1000
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+# Default container-level securityContext, applied to every generated container
+# (main container, and the prompt-templates/model-configs init containers).
+# Custom initContainers and sidecarContainers may override via their own
+# `securityContext` value.
+securityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
 deployment:
   image:
     repository: quay.io/go-skynet/local-ai
@@ -149,6 +176,17 @@ service:
   annotations: {}
   # If using an AWS load balancer, you'll need to override the default 60s load balancer idle timeout
   # service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "1200"
+
+# ServiceMonitor configuration for Prometheus Operator
+serviceMonitor:
+  enabled: true
+  # namespace: monitoring
+  # interval: 30s
+  # scrapeTimeout: 10s
+  # labels:
+  #   release: prometheus
+  # annotations: {}
+  # scrapeClass: prometheus
 
 ingress:
   enabled: false
