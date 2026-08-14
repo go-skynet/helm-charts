@@ -1,5 +1,41 @@
 replicaCount: 1
 
+# Pod-level securityContext, applied to spec.template.spec.securityContext.
+# Uncomment to enable; override to fit your cluster's Pod Security Standards (e.g. restricted).
+# podSecurityContext:
+#   fsGroup: 1000
+#   fsGroupChangePolicy: OnRootMismatch
+#   runAsNonRoot: true
+#   runAsUser: 1000
+#   runAsGroup: 1000
+#   seccompProfile:
+#     type: RuntimeDefault
+
+# Default container-level securityContext, applied to every generated container
+# (main container, and the prompt-templates/model-configs init containers).
+# Uncomment to enable.
+#
+# Note: there are two distinct securityContext mechanisms for containers:
+#   - `.Values.securityContext` (below): a shared default for the generated
+#     containers. This is what you uncomment here.
+#   - `.securityContext` on each item in `deployment.initContainers` /
+#     `deployment.sidecarContainers`: an OPTIONAL per-container override for
+#     your own custom containers. If set, it takes precedence for that
+#     container only.
+# Both are independent and do not conflict.
+# securityContext:
+#   allowPrivilegeEscalation: false
+#   privileged: false
+#   readOnlyRootFilesystem: false
+#   runAsNonRoot: true
+#   runAsUser: 1000
+#   runAsGroup: 1000
+#   capabilities:
+#     drop:
+#       - ALL
+#   seccompProfile:
+#     type: RuntimeDefault
+
 deployment:
   image:
     repository: quay.io/go-skynet/local-ai
