@@ -203,12 +203,16 @@ spec:
             claimName: {{ printf "%s-%s" (include "local-ai.fullname" $) $key }}
           {{- end }}
         {{- end }}
+        {{- if .Values.promptTemplates }}
         - name: prompt-templates
           configMap:
             name: {{ template "local-ai.fullname" . }}-prompt-templates
+        {{- end }}
+        {{- if .Values.modelsConfigs }}
         - name: models-configs
           configMap:
             name: {{ template "local-ai.fullname" . }}-models-configs
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
