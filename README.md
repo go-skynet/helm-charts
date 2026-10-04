@@ -13,8 +13,9 @@ cat <<EOF > values.yaml
 replicaCount: 1
 
 deployment:
-  image: quay.io/go-skynet/local-ai
-  tag: latest
+  image:
+    repository: quay.io/go-skynet/local-ai
+    tag: ""   # defaults to v<appVersion>, e.g. v4.11.0
   env:
     threads: 4
     context_size: 512

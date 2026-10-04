@@ -3,7 +3,10 @@ replicaCount: 1
 deployment:
   image:
     repository: quay.io/go-skynet/local-ai
-    tag: latest    # Use the appropriate tag. E.g. for cpu only: "latest-cpu"
+    # Defaults to "v" + the chart appVersion (e.g. v4.11.0), so the image always
+    # matches the release the chart was tested against. Set it to pin another
+    # build, e.g. "v4.11.0-gpu-nvidia-cuda-12" or "latest-gpu-hipblas".
+    tag: ""
   env:
     threads: 4
     context_size: 512
@@ -28,6 +31,32 @@ deployment:
     # To use cloud provided (eg AWS) image, provide it like: 1234356789.dkr.ecr.us-REGION-X.amazonaws.com/busybox
     image: busybox
   pullPolicy: IfNotPresent
+
+  # Health probes. LocalAI serves /healthz (liveness: the process is up) and
+  # /readyz (readiness: startup preload has finished; 503 while models and
+  # backends are still being installed). Set any of them to null to disable it.
+  startupProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    periodSeconds: 10
+    # The startup preload can run before the HTTP server binds, so allow up to
+    # 60 minutes (the same budget as the image HEALTHCHECK).
+    failureThreshold: 360
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
   imagePullSecrets: []
     # - name: secret-names
   
