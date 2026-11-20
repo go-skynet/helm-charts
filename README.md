@@ -1,111 +1,31 @@
 # Overview
 Helm charts for go-skynet projects.
 
+| Chart | Description |
+|---|---|
+| [local-ai](charts/local-ai) | [LocalAI](https://localai.io): standalone, distributed (frontends + workers) and P2P/federated deployments |
+
 ## LocalAI Installation
-Add the go-skynet helm repo:
+
 ```bash
 helm repo add go-skynet https://go-skynet.github.io/helm-charts/
-```
-
-Create a `values.yaml` file for the LocalAI chart and customize as needed:
-```bash
-cat <<EOF > values.yaml
-replicaCount: 1
-
-deployment:
-  image: quay.io/go-skynet/local-ai
-  tag: latest
-  env:
-    threads: 4
-    context_size: 512
-  modelsPath: "/models"
-
-resources:
-  {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
-
-# Prompt templates to include
-# Note: the keys of this map will be the names of the prompt template files
-promptTemplates:
-  {}
-  # ggml-gpt4all-j.tmpl: |
-  #   The prompt below is a question to answer, a task to complete, or a conversation to respond to; decide which and write an appropriate response.
-  #   ### Prompt:
-  #   {{.Input}}
-  #   ### Response:
-
-# Models to download at runtime
-models:
-  # Whether to force download models even if they already exist
-  forceDownload: false
-
-  # The list of URLs to download models from
-  # Note: the name of the file will be the name of the loaded model
-  list:
-    - url: "https://gpt4all.io/models/ggml-gpt4all-j.bin"
-      # basicAuth: base64EncodedCredentials
-
-  # Persistent storage for models and prompt templates.
-  # PVC and HostPath are mutually exclusive. If both are enabled,
-  # PVC configuration takes precedence. If neither are enabled, ephemeral
-  # storage is used.
-  persistence:
-    pvc:
-      enabled: false
-      size: 6Gi
-      accessModes:
-        - ReadWriteOnce
-
-      annotations: {}
-
-      # Optional
-      storageClass: ~
-
-    hostPath:
-      enabled: false
-      path: "/models"
-
-service:
-  type: ClusterIP
-  port: 80
-  annotations: {}
-  # If using an AWS load balancer, you'll need to override the default 60s load balancer idle timeout
-  # service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "1200"
-
-ingress:
-  enabled: false
-  className: ""
-  annotations:
-    {}
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
-  hosts:
-    - host: chart-example.local
-      paths:
-        - path: /
-          pathType: ImplementationSpecific
-  tls: []
-  #  - secretName: chart-example-tls
-  #    hosts:
-  #      - chart-example.local
-
-nodeSelector: {}
-
-tolerations: []
-
-affinity: {}
-EOF
-```
-Install the LocalAI chart:
-```bash
+helm repo update
+helm show values go-skynet/local-ai > values.yaml   # edit as needed
 helm install local-ai go-skynet/local-ai -f values.yaml
 ```
+
+See the [chart README](charts/local-ai/README.md) for examples (GPU, distributed mode, P2P) and the
+notes on upgrading from chart 3.x.
+
+## Development
+
+```bash
+helm lint charts/local-ai --strict
+ct lint --config ct.yaml                 # https://github.com/helm/chart-testing
+helm template t charts/local-ai -f charts/local-ai/ci/distributed-values.yaml | kubeconform -strict -ignore-missing-schemas
+```
+
+Pull requests run `ct lint` and `ct install` on a kind cluster (`.github/workflows/lint-test.yaml`) with
+the values files in `charts/local-ai/ci/`, and validate the renders of those and of
+`charts/local-ai/ci-render/` (features kind can't run) with kubeconform, for the newest and the
+oldest supported Kubernetes. Bump the chart `version` with every change.

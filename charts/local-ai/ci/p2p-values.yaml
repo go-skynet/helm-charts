@@ -1,0 +1,26 @@
+# chart-testing: P2P mode with a federated frontend, a P2P llama.cpp worker, the federated load
+# balancer and the explorer. Federation publishes the API to every token holder, so auth is on.
+mode: p2p
+p2p:
+  federated: true
+auth:
+  enabled: true
+persistence:
+  models:
+    size: 2Gi
+  backends:
+    size: 1Gi
+  data:
+    size: 1Gi
+workers:
+  - name: p2p
+    type: p2p-llama-cpp-rpc
+    persistence:
+      backends:
+        size: 2Gi
+federatedServer:
+  enabled: true
+explorer:
+  enabled: true
+env:
+  LOCALAI_VRAM_WARM_LIMIT: "0"

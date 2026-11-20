@@ -1,0 +1,39 @@
+# Render-only (kubeconform in CI): standalone with GPU, auth and the optional resources.
+image:
+  variant: gpu-nvidia-cuda-12
+auth:
+  enabled: true
+  registrationMode: invite
+frontend:
+  models:
+    - phi-4
+  runtimeClassName: nvidia
+  shareProcessNamespace: true
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+  livenessProbe:
+    exec:
+      command:
+        - "true"
+persistence:
+  configuration:
+    enabled: true
+  generated:
+    enabled: true
+  models:
+    existingClaim: old-models
+service:
+  type: NodePort
+  nodePort: 30080
+ingress:
+  enabled: true
+  hosts:
+    - host: ai.example.com
+      paths:
+        - path: /ai
+          pathType: Prefix
+serviceMonitor:
+  enabled: true
+networkPolicy:
+  enabled: true

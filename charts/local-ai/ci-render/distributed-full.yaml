@@ -1,0 +1,177 @@
+# Render-only (kubeconform in CI): every distributed feature with external services.
+mode: distributed
+commonLabels:
+  team: ai
+commonAnnotations:
+  example.com/owner: ai
+imagePullSecrets:
+  - name: regcred
+serviceAccount:
+  create: true
+  annotations:
+    example.com/role: localai
+env:
+  LOCALAI_UPLOAD_LIMIT: 1000000
+  LOCALAI_LOG_LEVEL: info
+  LOCALAI_COLLECTIONS_EMBEDDING_MODEL: nomic
+extraEnv:
+  - name: EXTRA
+    value: "1"
+envFrom:
+  - configMapRef:
+      name: localai-env
+apiKey:
+  existingSecret: localai-api-key
+auth:
+  database:
+    existingSecret: localai-db
+  registrationMode: approval
+  adminEmail: admin@example.com
+  baseUrl: https://ai.example.com
+  oidc:
+    issuer: https://idp.example.com
+    clientId: localai
+    existingSecret: localai-oidc
+  github:
+    clientId: gh
+    existingSecret: localai-gh
+  hmacSecret:
+    existingSecret: localai-hmac
+collections:
+  database:
+    existingSecret: localai-collections-db
+credentialsFile:
+  existingSecret: localai-credentials
+hfToken:
+  existingSecret: localai-hf
+addonHostPolicy:
+  content: '{"version": 1}'
+modelsConfigs:
+  phi: |-
+    name: phi
+    parameters:
+      model: phi.gguf
+promptTemplates:
+  chat.tmpl: "{{.Input}}"
+frontend:
+  replicaCount: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  env:
+    LOCALAI_TRUSTED_PROXIES: 10.0.0.0/8
+  shareProcessNamespace: true
+  pdb:
+    enabled: true
+    minAvailable: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: frontend
+persistence:
+  models:
+    accessModes:
+      - ReadWriteMany
+  backends:
+    accessModes:
+      - ReadWriteMany
+  data:
+    accessModes:
+      - ReadWriteMany
+    retain: true
+  configuration:
+    enabled: true
+    accessModes:
+      - ReadWriteMany
+  generated:
+    enabled: true
+    accessModes:
+      - ReadWriteMany
+service:
+  annotations:
+    example.com/lb: internal
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  hosts:
+    - host: ai.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: ai-tls
+      hosts:
+        - ai.example.com
+distributed:
+  nats:
+    url: tls://nats.example.com:4222
+    auth:
+      existingSecret: localai-nats-auth
+    tls:
+      existingSecret: localai-nats-tls
+      clientAuth: true
+  registrationToken:
+    existingSecret: localai-registration
+  autoApproveNodes: false
+  sharedModels: true
+  storage:
+    url: https://s3.example.com
+    existingSecret: localai-s3
+workers:
+  - name: cpu
+    replicaCount: 2
+    env:
+      LOCALAI_NODE_LABELS: tier=cpu
+      LOCALAI_VRAM_BUDGET: 80%
+  - name: gpu
+    image:
+      variant: gpu-nvidia-cuda-12
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+    shareProcessNamespace: true
+  - name: rpc
+    type: llama-cpp-rpc
+    replicaCount: 2
+    args:
+      - --threads 4
+  - name: vllm-rank1
+    type: vllm
+    args:
+      - Qwen/Qwen3-8B
+    env:
+      VLLM_DATA_PARALLEL_START_RANK: "1"
+  - name: ds4
+    type: ds4-distributed
+    args:
+      - --layers 0-20
+chatWorker:
+  enabled: true
+  replicaCount: 2
+agentWorker:
+  enabled: true
+addonOwner:
+  enabled: true
+  carrierKeys:
+    ownerSecret: carrier-owner
+    frontendSecret: carrier-frontend
+serviceMonitor:
+  enabled: true
+  labels:
+    release: prometheus
+  bearerTokenSecret:
+    name: localai-api-key
+    key: api-key
+networkPolicy:
+  enabled: true
+  frontendIngressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx

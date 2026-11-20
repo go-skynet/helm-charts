@@ -1,0 +1,161 @@
+{{- if .Values.addonOwner.enabled }}
+{{- $ow := .Values.addonOwner -}}
+{{- $name := include "local-ai.addonOwnerName" . -}}
+{{- /*
+The owner shares the frontends' models directory; its add-on state lives on its own volume.
+Without S3, Files keeps its bytes in <data>/chats/blobs, which every node must share: the owner
+mounts that folder from the frontends' data volume.
+*/}}
+{{- $sharedBlobs := not .Values.distributed.storage.url -}}
+{{- $blobsPath := printf "%s/chats/blobs" (trimSuffix "/" $ow.persistence.mountPath) -}}
+{{- $names := list "models" "backends" "configuration" "generated" -}}
+{{- /* Shared with the frontends: models, and the runtime settings (configuration). */}}
+{{- $shared := list "models" "configuration" -}}
+{{- $paths := include "local-ai.frontendPaths" (dict "root" $ "names" $names) | fromYaml -}}
+{{- $_ := set $paths "data" $ow.persistence.mountPath -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "addon-owner") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  # One owner: reach it while it starts too (chat workers wait for its /healthz; it reports ready
+  # only once a worker is healthy).
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "local-ai.selectorLabels" (dict "root" $ "component" "addon-owner") | nindent 4 }}
+  ports:
+    - name: carrier
+      port: 8443
+      targetPort: carrier
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "addon-owner") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  serviceName: {{ $name }}
+  # Its data goes with the frontend's data volume (and the account database) on uninstall.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: {{ ternary "Retain" "Delete" (or .Values.persistence.data.retain (not .Values.postgresql.enabled)) }}
+    whenScaled: Retain
+  # Exactly one owner: a second process on the same add-on storage refuses to start.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "local-ai.selectorLabels" (dict "root" $ "component" "addon-owner") | nindent 6 }}
+  template:
+    {{- include "local-ai.podMetadata" (dict "root" $ "comp" $ow "component" "addon-owner" "annotations" (include "local-ai.policyChecksum" . | fromYaml)) | nindent 4 }}
+    spec:
+      {{- include "local-ai.podCommon" (dict "root" $ "comp" $ow "gracePeriod" 60) | trim | nindent 6 }}
+      initContainers:
+        {{- /* After the frontend's first start: servers that bootstrap an empty database at the same
+        time can hit a PostgreSQL deadlock (LocalAI v5.0.0) and restart once. */}}
+        {{- with include "local-ai.waitInit" (dict "root" $ "image" $ow.image "postgres" true "nats" true "frontend" (gt (int .Values.frontend.replicaCount) 0)) }}{{ . | trim | nindent 8 }}{{- end }}
+        {{- include "local-ai.carrierInit" (dict "root" $ "image" $ow.image) | nindent 8 }}
+        {{- if $sharedBlobs }}
+        {{- /* Root, like the image's own entrypoint: shared (e.g. NFS) volumes may ignore fsGroup. */}}
+        - name: files-blobs
+          image: {{ include "local-ai.image" (dict "root" $ "image" $ow.image) }}
+          imagePullPolicy: {{ include "local-ai.imagePullPolicy" (dict "root" $ "image" $ow.image) }}
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - DAC_OVERRIDE
+                - FOWNER
+          command:
+            - sh
+            - -c
+            - mkdir -p /shared/chats/blobs && chown -h 10001:10001 /shared/chats /shared/chats/blobs
+          volumeMounts:
+            - name: frontend-data
+              mountPath: /shared
+        {{- end }}
+        {{- with $ow.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: local-ai
+          image: {{ include "local-ai.image" (dict "root" $ "image" $ow.image) }}
+          imagePullPolicy: {{ include "local-ai.imagePullPolicy" (dict "root" $ "image" $ow.image) }}
+          args:
+            - run
+          {{- $env := list
+                (include "local-ai.env.pod" .)
+                (include "local-ai.env.paths" $paths)
+                (include "local-ai.env.server" (dict "root" $ "role" "addon-owner"))
+                (include "local-ai.env.user" (dict "root" $ "comp" $ow)) }}
+          env:
+            {{- include "local-ai.env.dedupe" (join "\n" $env) | nindent 12 }}
+          {{- with include "local-ai.envFrom" (dict "root" $ "comp" $ow) }}{{ . | trim | nindent 10 }}{{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: carrier
+              containerPort: 8443
+              protocol: TCP
+          {{- with include "local-ai.probes" (include "local-ai.serverProbes" (dict "comp" $ow) | fromYaml) }}{{ . | trim | nindent 10 }}{{- end }}
+          {{- with $ow.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with include "local-ai.securityContext" (dict "root" $ "comp" $ow) }}{{ . | trim | nindent 10 }}{{- end }}
+          volumeMounts:
+            {{- include "local-ai.mountsFromPaths" $paths | trim | nindent 12 }}
+            {{- if $sharedBlobs }}
+            - name: frontend-data
+              mountPath: {{ $blobsPath }}
+              subPath: chats/blobs
+            {{- end }}
+            {{- with include "local-ai.fileMounts" (dict "root" $ "carrierRole" "owner") }}{{ . | trim | nindent 12 }}{{- end }}
+            {{- with $ow.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with $ow.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      volumes:
+        {{- include "local-ai.frontendVolumes" (dict "root" $ "names" $names "shared" $shared) | trim | nindent 8 }}
+        {{- if $sharedBlobs }}
+        - name: frontend-data
+          persistentVolumeClaim:
+            claimName: {{ include "local-ai.claimName" (dict "root" $ "name" "data") }}
+        {{- end }}
+        {{- with include "local-ai.fileVolumes" (dict "root" $ "carrierRole" "owner") }}{{ . | trim | nindent 8 }}{{- end }}
+        {{- with $ow.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "local-ai.selectorLabels" (dict "root" $ "component" "addon-owner") | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml $ow.persistence.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ $ow.persistence.size | quote }}
+        {{- with $ow.persistence.storageClass }}
+        storageClassName: {{ ternary "" . (eq . "-") | quote }}
+        {{- end }}
+{{- end }}

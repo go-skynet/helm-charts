@@ -1,0 +1,35 @@
+# chart-testing: distributed mode with the built-in PostgreSQL + NATS, one CPU worker, a chat
+# worker, the agent worker and the add-on owner (carrier-keys hook Job).
+mode: distributed
+postgresql:
+  enabled: true
+  persistence:
+    size: 1Gi
+nats:
+  enabled: true
+persistence:
+  models:
+    size: 2Gi
+  backends:
+    size: 1Gi
+  data:
+    size: 1Gi
+workers:
+  - name: cpu
+    persistence:
+      models:
+        size: 2Gi
+      backends:
+        size: 2Gi
+      data:
+        size: 1Gi
+env:
+  LOCALAI_VRAM_WARM_LIMIT: "0"
+chatWorker:
+  enabled: true
+agentWorker:
+  enabled: true
+addonOwner:
+  enabled: true
+  persistence:
+    size: 1Gi

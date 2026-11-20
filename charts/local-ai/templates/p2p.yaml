@@ -1,0 +1,185 @@
+{{- if .Values.federatedServer.enabled }}
+{{- $fs := .Values.federatedServer -}}
+{{- $name := include "local-ai.componentName" (dict "root" $ "name" "federated") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "federated") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $ "extra" $fs.service.annotations) }}
+spec:
+  type: {{ $fs.service.type }}
+  selector:
+    {{- include "local-ai.selectorLabels" (dict "root" $ "component" "federated") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $fs.service.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "federated") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  replicas: {{ $fs.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "local-ai.selectorLabels" (dict "root" $ "component" "federated") | nindent 6 }}
+  template:
+    {{- include "local-ai.podMetadata" (dict "root" $ "comp" $fs "component" "federated") | nindent 4 }}
+    spec:
+      {{- include "local-ai.podCommon" (dict "root" $ "comp" $fs) | trim | nindent 6 }}
+      {{- with $fs.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: local-ai
+          image: {{ include "local-ai.image" (dict "root" $ "image" $fs.image) }}
+          imagePullPolicy: {{ include "local-ai.imagePullPolicy" (dict "root" $ "image" $fs.image) }}
+          args:
+            - federated
+          {{- $env := list
+                "- name: LOCALAI_ADDRESS\n  value: \":8080\""
+                (include "local-ai.env.p2pToken" (dict "root" $ "name" "LOCALAI_P2P_TOKEN"))
+                (include "local-ai.env.user" (dict "root" $ "comp" $fs)) }}
+          env:
+            {{- include "local-ai.env.dedupe" (join "\n" $env) | nindent 12 }}
+          {{- with include "local-ai.envFrom" (dict "root" $ "comp" $fs) }}{{ . | trim | nindent 10 }}{{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- with include "local-ai.probes" (include "local-ai.tcpProbes" (dict "comp" $fs) | fromYaml) }}{{ . | trim | nindent 10 }}{{- end }}
+          {{- with $fs.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with include "local-ai.securityContext" (dict "root" $ "comp" $fs) }}{{ . | trim | nindent 10 }}{{- end }}
+          {{- with $fs.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- with $fs.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $fs.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- if .Values.explorer.enabled }}
+{{- $ex := .Values.explorer -}}
+{{- $name := include "local-ai.componentName" (dict "root" $ "name" "explorer") }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "explorer") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $ "extra" $ex.service.annotations) }}
+spec:
+  type: {{ $ex.service.type }}
+  selector:
+    {{- include "local-ai.selectorLabels" (dict "root" $ "component" "explorer") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $ex.service.port }}
+      targetPort: http
+{{- if $ex.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "explorer") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  accessModes:
+    {{- toYaml $ex.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ $ex.persistence.size | quote }}
+  {{- with $ex.persistence.storageClass }}
+  storageClassName: {{ ternary "" . (eq . "-") | quote }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "explorer") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "local-ai.selectorLabels" (dict "root" $ "component" "explorer") | nindent 6 }}
+  template:
+    {{- include "local-ai.podMetadata" (dict "root" $ "comp" $ex "component" "explorer") | nindent 4 }}
+    spec:
+      {{- include "local-ai.podCommon" (dict "root" $ "comp" $ex) | trim | nindent 6 }}
+      {{- with $ex.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: local-ai
+          image: {{ include "local-ai.image" (dict "root" $ "image" $ex.image) }}
+          imagePullPolicy: {{ include "local-ai.imagePullPolicy" (dict "root" $ "image" $ex.image) }}
+          args:
+            - explorer
+          {{- $env := list
+                "- name: LOCALAI_ADDRESS\n  value: \":8080\""
+                "- name: LOCALAI_POOL_DATABASE\n  value: /data/explorer.json"
+                (ternary "- name: LOCALAI_WITH_SYNC\n  value: \"true\"" "" (eq (toString $ex.sync) "true"))
+                (include "local-ai.env.user" (dict "root" $ "comp" $ex)) }}
+          env:
+            {{- include "local-ai.env.dedupe" (join "\n" $env) | nindent 12 }}
+          {{- with include "local-ai.envFrom" (dict "root" $ "comp" $ex) }}{{ . | trim | nindent 10 }}{{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- with include "local-ai.probes" (include "local-ai.tcpProbes" (dict "comp" $ex) | fromYaml) }}{{ . | trim | nindent 10 }}{{- end }}
+          {{- with $ex.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with include "local-ai.securityContext" (dict "root" $ "comp" $ex) }}{{ . | trim | nindent 10 }}{{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            {{- with $ex.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with $ex.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: data
+          {{- if $ex.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $name }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- with $ex.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

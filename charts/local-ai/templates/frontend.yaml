@@ -1,0 +1,94 @@
+{{- include "local-ai.validate" . -}}
+{{- $fe := .Values.frontend -}}
+{{- $names := list "models" "backends" "data" "configuration" "generated" -}}
+{{- $carrierRole := ternary "frontend" "" .Values.addonOwner.enabled -}}
+{{- $modelFiles := or .Values.modelsConfigs .Values.promptTemplates -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "local-ai.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "frontend") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  replicas: {{ $fe.replicaCount }}
+  {{- with $fe.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "local-ai.selectorLabels" (dict "root" $ "component" "frontend") | nindent 6 }}
+  template:
+    {{- $ann := include "local-ai.policyChecksum" . | fromYaml }}
+    {{- if $modelFiles }}
+    {{- $_ := set $ann "checksum/model-files" (include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum) }}
+    {{- end }}
+    {{- include "local-ai.podMetadata" (dict "root" $ "comp" $fe "component" "frontend" "annotations" $ann) | nindent 4 }}
+    spec:
+      {{- include "local-ai.podCommon" (dict "root" $ "comp" $fe "gracePeriod" 60) | trim | nindent 6 }}
+      {{- $wait := ternary (include "local-ai.waitInit" (dict "root" $ "image" $fe.image "postgres" true "nats" true)) "" (eq .Values.mode "distributed") }}
+      {{- if or $carrierRole $modelFiles $wait $fe.initContainers }}
+      initContainers:
+        {{- with $wait }}
+        {{- . | trim | nindent 8 }}
+        {{- end }}
+        {{- if $carrierRole }}
+        {{- include "local-ai.carrierInit" (dict "root" $ "image" $fe.image) | nindent 8 }}
+        {{- end }}
+        {{- with include "local-ai.modelFilesInit" (dict "root" $ "image" $fe.image "modelsPath" .Values.persistence.models.mountPath) }}{{ . | trim | nindent 8 }}{{- end }}
+        {{- with $fe.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: local-ai
+          image: {{ include "local-ai.image" (dict "root" $ "image" $fe.image) }}
+          imagePullPolicy: {{ include "local-ai.imagePullPolicy" (dict "root" $ "image" $fe.image) }}
+          args:
+            - run
+            {{- range $fe.models }}
+            - {{ . | quote }}
+            {{- end }}
+            {{- range $fe.args }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- $env := list
+                (include "local-ai.env.pod" .)
+                (include "local-ai.env.paths" (include "local-ai.frontendPaths" (dict "root" $ "names" $names) | fromYaml))
+                (include "local-ai.env.server" (dict "root" $ "role" "frontend"))
+                (include "local-ai.env.user" (dict "root" $ "comp" $fe)) }}
+          env:
+            {{- include "local-ai.env.dedupe" (join "\n" $env) | nindent 12 }}
+          {{- with include "local-ai.envFrom" (dict "root" $ "comp" $fe) }}{{ . | trim | nindent 10 }}{{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- with include "local-ai.probes" (include "local-ai.serverProbes" (dict "comp" $fe) | fromYaml) }}{{ . | trim | nindent 10 }}{{- end }}
+          {{- with $fe.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with include "local-ai.securityContext" (dict "root" $ "comp" $fe) }}{{ . | trim | nindent 10 }}{{- end }}
+          volumeMounts:
+            {{- include "local-ai.mountsFromPaths" (include "local-ai.frontendPaths" (dict "root" $ "names" $names) | fromYaml) | trim | nindent 12 }}
+            {{- with include "local-ai.fileMounts" (dict "root" $ "carrierRole" $carrierRole) }}{{ . | trim | nindent 12 }}{{- end }}
+            {{- with $fe.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with $fe.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      volumes:
+        {{- include "local-ai.frontendVolumes" (dict "root" $ "names" $names "shared" $names) | trim | nindent 8 }}
+        {{- with include "local-ai.fileVolumes" (dict "root" $ "carrierRole" $carrierRole) }}{{ . | trim | nindent 8 }}{{- end }}
+        {{- if $modelFiles }}
+        - name: model-files
+          configMap:
+            name: {{ include "local-ai.componentName" (dict "root" $ "name" "model-files") }}
+        {{- end }}
+        {{- with $fe.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

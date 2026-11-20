@@ -1,0 +1,33 @@
+{{- if or .Values.modelsConfigs .Values.promptTemplates }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "local-ai.componentName" (dict "root" $ "name" "model-files") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "frontend") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+data:
+  {{- range $name, $content := .Values.modelsConfigs }}
+  {{ ternary $name (printf "%s.yaml" $name) (or (hasSuffix ".yaml" $name) (hasSuffix ".yml" $name)) }}: |-
+    {{- $content | nindent 4 }}
+  {{- end }}
+  {{- range $name, $content := .Values.promptTemplates }}
+  {{ $name }}: |-
+    {{- $content | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- if .Values.addonHostPolicy.content }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "local-ai.componentName" (dict "root" $ "name" "addon-host-policy") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "frontend") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+data:
+  host-policy.json: |-
+    {{- .Values.addonHostPolicy.content | nindent 4 }}
+{{- end }}

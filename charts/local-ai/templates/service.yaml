@@ -1,26 +1,57 @@
+{{- $svc := .Values.service -}}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ template "local-ai.fullname" . }}
-  namespace: {{ .Release.Namespace | quote }}
+  name: {{ include "local-ai.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "local-ai.labels" . | nindent 4 }}
-{{- if .Values.service.annotations }}
-  annotations:
-  {{ toYaml .Values.service.annotations | nindent 4 }}
-{{- end }}
+    {{- include "local-ai.labels" (dict "root" $ "component" "frontend") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $ "extra" $svc.annotations) }}
 spec:
+  type: {{ $svc.type }}
+  {{- with $svc.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  {{- with $svc.loadBalancerIP }}
+  loadBalancerIP: {{ . }}
+  {{- end }}
+  {{- with $svc.loadBalancerClass }}
+  loadBalancerClass: {{ . }}
+  {{- end }}
+  {{- with $svc.sessionAffinity }}
+  sessionAffinity: {{ . }}
+  {{- end }}
   selector:
-    app.kubernetes.io/name: {{ include "local-ai.name" . }}
-  type: "{{ .Values.service.type }}"
-{{- if .Values.service.externalTrafficPolicy }}
-  externalTrafficPolicy: {{ .Values.service.externalTrafficPolicy }}
-{{- end }}
+    {{- include "local-ai.selectorLabels" (dict "root" $ "component" "frontend") | nindent 4 }}
   ports:
-    - protocol: TCP
-      {{- if not (quote .Values.service.nodePort | empty) }}
-      nodePort: {{ .Values.service.nodePort }}
+    - name: http
+      port: {{ $svc.port }}
+      targetPort: http
+      protocol: TCP
+      {{- if and $svc.nodePort (has $svc.type (list "NodePort" "LoadBalancer")) }}
+      nodePort: {{ $svc.nodePort }}
       {{- end }}
-      port: {{ .Values.service.port }}
-      targetPort: 8080
-      name: http
+{{- if eq .Values.mode "distributed" }}
+---
+# Registration endpoint for workers and the agent worker: also routes to frontends that are not
+# ready yet (a frontend waits up to 5 minutes for a healthy worker before it reports ready).
+# Its own component label keeps it out of the ServiceMonitor, which would scrape each frontend twice.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "local-ai.componentName" (dict "root" $ "name" "nodes") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "nodes") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  type: ClusterIP
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "local-ai.selectorLabels" (dict "root" $ "component" "frontend") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+{{- end }}
