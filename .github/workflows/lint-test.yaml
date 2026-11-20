@@ -1,0 +1,74 @@
+name: Lint and Test Charts
+
+on:
+  pull_request:
+    paths:
+      - "charts/**"
+      - "ct.yaml"
+      - ".github/workflows/lint-test.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510 # v2.9.0
+
+      - name: List changed charts
+        id: list-changed
+        run: |
+          changed=$(ct list-changed --config ct.yaml)
+          if [[ -n "$changed" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Lint charts
+        if: steps.list-changed.outputs.changed == 'true'
+        run: ct lint --config ct.yaml
+
+      # values.schema.json is generated: edit charts/local-ai/hack/gen_schema.py, not the JSON.
+      - name: Check that values.schema.json is up to date
+        if: steps.list-changed.outputs.changed == 'true'
+        run: |
+          python3 -I charts/local-ai/hack/gen_schema.py "$RUNNER_TEMP/values.schema.json"
+          diff -u charts/local-ai/values.schema.json "$RUNNER_TEMP/values.schema.json"
+
+      # ci/*-values.yaml are also installed by ct; ci-render/ covers what kind can't run (GPUs,
+      # external services, ingress, monitoring). Checked against the newest and the oldest
+      # supported Kubernetes (Chart.yaml kubeVersion).
+      - name: Validate rendered manifests
+        if: steps.list-changed.outputs.changed == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSLo "$RUNNER_TEMP/kubeconform.tar.gz" https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          echo "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum -c -
+          tar xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C "$RUNNER_TEMP/bin" kubeconform
+          for values in charts/local-ai/ci/*-values.yaml charts/local-ai/ci-render/*.yaml; do
+            for version in master 1.27.0; do
+              echo "== $values (Kubernetes $version)"
+              helm template ci charts/local-ai -f "$values" | "$RUNNER_TEMP/bin/kubeconform" -strict -summary -ignore-missing-schemas -kubernetes-version "$version"
+            done
+          done
+
+      - name: Free disk space for the LocalAI image
+        if: steps.list-changed.outputs.changed == 'true'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Create kind cluster
+        if: steps.list-changed.outputs.changed == 'true'
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+
+      - name: Install charts
+        if: steps.list-changed.outputs.changed == 'true'
+        run: ct install --config ct.yaml

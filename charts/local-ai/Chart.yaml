@@ -1,6 +1,26 @@
 apiVersion: v2
-appVersion: 2.23
-description: A Helm chart for deploying LocalAI to a Kubernetes cluster
 name: local-ai
+description: LocalAI on Kubernetes, standalone, distributed (frontends and worker pools) or P2P/federated
 type: application
-version: 3.4.2
+version: 4.0.0
+appVersion: v5.0.0
+kubeVersion: ">=1.27.0-0"
+home: https://localai.io
+icon: https://github.com/mudler/LocalAI/raw/master/core/http/static/logo.png
+sources:
+  - https://github.com/mudler/LocalAI
+  - https://github.com/go-skynet/helm-charts
+keywords:
+  - localai
+  - llm
+  - openai
+  - ai
+  - inference
+annotations:
+  artifacthub.io/changes: |
+    - kind: changed
+      description: "Breaking: rewrite for LocalAI v5. Values are not compatible with 3.x; see \"Upgrading from 3.x\" in the README"
+    - kind: added
+      description: Distributed mode (frontends, worker pools, chat workers, agent worker, add-on owner) and P2P/federated mode
+    - kind: added
+      description: values.schema.json, helm test hook, optional built-in PostgreSQL and NATS

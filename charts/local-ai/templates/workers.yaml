@@ -1,0 +1,186 @@
+{{- $root := . -}}
+{{- range $pool := (include "local-ai.workerPools" . | fromYaml).pools }}
+{{- $component := printf "worker-%s" $pool.name }}
+{{- $grpc := int $pool.grpcPort }}
+{{- $httpPort := sub $grpc 1 }}
+{{- $volumes := $pool.volumes }}
+{{- /* With distributed.sharedModels, generic workers mount the frontends' models claim at the same path. */}}
+{{- $sharedModels := and $root.Values.distributed.sharedModels (eq $pool.type "generic") }}
+{{- $paths := dict }}
+{{- range $name := $volumes }}
+{{- $_ := set $paths $name (index $pool.persistence $name).mountPath }}
+{{- end }}
+{{- if $sharedModels }}
+{{- $_ := set $paths "models" $root.Values.persistence.models.mountPath }}
+{{- end }}
+{{- if eq $pool.type "generic" }}
+{{- /* local-ai worker keeps data, staging and cache next to the models directory. */}}
+{{- $base := dir $paths.models }}
+{{- range $name := list "data" "staging" "cache" }}
+{{- $_ := set $paths $name (clean (printf "%s/%s" $base $name)) }}
+{{- end }}
+{{- end }}
+{{- /* Arguments of the worker process itself, passed as one flag value where LocalAI expects it. */}}
+{{- $argsFlag := dict "llama-cpp-rpc" "--llama-cpp-args" "p2p-llama-cpp-rpc" "--llama-cpp-args" "ds4-distributed" "--ds4-args" }}
+{{- $args := $pool.args | default list }}
+{{- if eq $pool.type "llama-cpp-rpc" }}
+{{- $args = prepend $args (printf "--host 0.0.0.0 --port %v" $pool.rpcPort) }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $pool.fullname }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $root "component" $component) | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $root) }}
+spec:
+  clusterIP: None
+  # Workers must be reachable while they start, so the frontend can register them.
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "local-ai.selectorLabels" (dict "root" $root "component" $component) | nindent 4 }}
+  {{- /* Other types expose no fixed port: the Service only gives their pods DNS names (headless
+  Services may leave ports out). */}}
+  {{- if eq $pool.type "generic" }}
+  ports:
+    - name: http
+      port: {{ $httpPort }}
+      targetPort: http
+    - name: grpc
+      port: {{ $grpc }}
+      targetPort: grpc
+  {{- else if eq $pool.type "llama-cpp-rpc" }}
+  ports:
+    - name: rpc
+      port: {{ $pool.rpcPort }}
+      targetPort: rpc
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $pool.fullname }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $root "component" $component) | nindent 4 }}
+    local-ai/worker-type: {{ $pool.type }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $root) }}
+spec:
+  serviceName: {{ $pool.fullname }}
+  replicas: {{ $pool.replicaCount }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "local-ai.selectorLabels" (dict "root" $root "component" $component) | nindent 6 }}
+  template:
+    {{- include "local-ai.podMetadata" (dict "root" $root "comp" $pool "component" $component) | nindent 4 }}
+    spec:
+      {{- include "local-ai.podCommon" (dict "root" $root "comp" $pool "gracePeriod" 60) | trim | nindent 6 }}
+      {{- $wait := include "local-ai.waitInit" (dict "root" $root "image" $pool.image "nats" true "frontend" true) }}
+      {{- if not (or (eq $pool.type "generic") (and (eq $pool.type "vllm") (eq $root.Values.mode "distributed"))) }}
+      {{- $wait = "" }}
+      {{- end }}
+      {{- if or $wait $pool.initContainers }}
+      initContainers:
+        {{- with $wait }}
+        {{- . | trim | nindent 8 }}
+        {{- end }}
+        {{- with $pool.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: local-ai
+          image: {{ include "local-ai.image" (dict "root" $root "image" $pool.image) }}
+          imagePullPolicy: {{ include "local-ai.imagePullPolicy" (dict "root" $root "image" $pool.image) }}
+          args:
+            {{- if eq $pool.type "generic" }}
+            - worker
+            {{- else }}
+            - p2p-worker
+            - {{ $pool.type }}
+            {{- end }}
+            {{- if and (hasKey $argsFlag $pool.type) $args }}
+            - {{ printf "%s=%s" (index $argsFlag $pool.type) (join " " $args) | quote }}
+            {{- else }}
+            {{- range $args }}
+            - {{ . | quote }}
+            {{- end }}
+            {{- end }}
+          env:
+            {{- include "local-ai.env.dedupe" (include "local-ai.env.workerPool" (dict "root" $root "pool" $pool "paths" $paths)) | nindent 12 }}
+          {{- with include "local-ai.envFrom" (dict "root" $root "comp" $pool) }}{{ . | trim | nindent 10 }}{{- end }}
+          {{- if has $pool.type (list "generic" "llama-cpp-rpc") }}
+          ports:
+            {{- if eq $pool.type "generic" }}
+            - name: http
+              containerPort: {{ $httpPort }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ $grpc }}
+              protocol: TCP
+            {{- else if eq $pool.type "llama-cpp-rpc" }}
+            - name: rpc
+              containerPort: {{ $pool.rpcPort }}
+              protocol: TCP
+            {{- end }}
+          {{- end }}
+          {{- $probes := dict }}
+          {{- if eq $pool.type "generic" }}
+          {{- /* The worker serves /healthz once it is registered (and approved). */}}
+          {{- $probes = dict
+                "startupProbe" (dict "httpGet" (dict "path" "/healthz" "port" "http") "periodSeconds" 10 "failureThreshold" (ternary 60 8640 $root.Values.distributed.autoApproveNodes))
+                "readinessProbe" (dict "httpGet" (dict "path" "/readyz" "port" "http") "periodSeconds" 10 "timeoutSeconds" 5)
+                "livenessProbe" (dict "httpGet" (dict "path" "/healthz" "port" "http") "periodSeconds" 30 "timeoutSeconds" 5 "failureThreshold" 5) }}
+          {{- else if eq $pool.type "llama-cpp-rpc" }}
+          {{- $probes = dict
+                "startupProbe" (dict "tcpSocket" (dict "port" "rpc") "periodSeconds" 10 "failureThreshold" 90)
+                "livenessProbe" (dict "tcpSocket" (dict "port" "rpc") "periodSeconds" 30 "failureThreshold" 5) }}
+          {{- end }}
+          {{- with include "local-ai.probes" (include "local-ai.resolveProbes" (dict "defaults" $probes "comp" $pool) | fromYaml) }}{{ . | trim | nindent 10 }}{{- end }}
+          {{- with $pool.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with include "local-ai.securityContext" (dict "root" $root "comp" $pool) }}{{ . | trim | nindent 10 }}{{- end }}
+          volumeMounts:
+            {{- include "local-ai.mountsFromPaths" $paths | trim | nindent 12 }}
+            {{- with include "local-ai.fileMounts" (dict "root" $root) }}{{ . | trim | nindent 12 }}{{- end }}
+            {{- with $pool.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with $pool.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with include "local-ai.workerVolumes" (dict "root" $root "pool" $pool "sharedModels" $sharedModels "scratch" (eq $pool.type "generic")) }}
+      volumes:
+        {{- . | trim | nindent 8 }}
+      {{- end }}
+  {{- $claims := list }}
+  {{- range $name := $volumes }}
+  {{- if and (index $pool.persistence $name).enabled (not (and (eq $name "models") $sharedModels)) }}
+  {{- $claims = append $claims $name }}
+  {{- end }}
+  {{- end }}
+  {{- if $claims }}
+  volumeClaimTemplates:
+    {{- range $name := $claims }}
+    {{- $p := index $pool.persistence $name }}
+    - metadata:
+        name: {{ $name }}
+        labels:
+          {{- include "local-ai.selectorLabels" (dict "root" $root "component" $component) | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml $p.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ $p.size | quote }}
+        {{- if $p.storageClass }}
+        storageClassName: {{ ternary "" $p.storageClass (eq $p.storageClass "-") | quote }}
+        {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}

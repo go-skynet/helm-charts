@@ -1,0 +1,42 @@
+# Render-only (kubeconform in CI): P2P with every helper, hostNetwork, network policies and digests.
+mode: p2p
+commonAnnotations:
+  example.com/owner: ai
+image:
+  variant: gpu-nvidia-cuda-12
+  digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+env:
+  LOCALAI_P2P_NETWORK_ID: lab
+  LOCALAI_P2P_DISABLE_DHT: "true"
+p2p:
+  federated: true
+frontend:
+  hostNetwork: true
+apiKey:
+  existingSecret: local-ai-api-key
+workers:
+  - name: p2p
+    type: p2p-llama-cpp-rpc
+    replicaCount: 2
+    hostNetwork: true
+    args:
+      - --threads 8
+federatedServer:
+  enabled: true
+  image:
+    variant: ""
+  replicaCount: 2
+  env:
+    LOCALAI_RANDOM_WORKER: "true"
+  envFrom:
+    - configMapRef:
+        name: p2p-env
+  service:
+    type: LoadBalancer
+explorer:
+  enabled: true
+  service:
+    annotations:
+      example.com/lb: internal
+networkPolicy:
+  enabled: true

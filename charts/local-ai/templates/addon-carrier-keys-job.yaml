@@ -1,0 +1,152 @@
+{{- /*
+Generates the add-on carrier key set once, with LocalAI's own `util addons-carrier-keys`, and
+stores it in two Secrets (owner, frontend). The Secrets are not managed by Helm, so they survive
+upgrades and uninstall: delete them to rotate, then restart the owner and every frontend.
+The Job (and its permission to create Secrets) is only rendered while a Secret is missing.
+*/}}
+{{- $haveKeys := and (lookup "v1" "Secret" .Release.Namespace (include "local-ai.carrierSecret" (dict "root" $ "role" "owner"))) (lookup "v1" "Secret" .Release.Namespace (include "local-ai.carrierSecret" (dict "root" $ "role" "frontend"))) }}
+{{- if and .Values.addonOwner.enabled (not (and .Values.addonOwner.carrierKeys.ownerSecret .Values.addonOwner.carrierKeys.frontendSecret)) (not $haveKeys) }}
+{{- $name := include "local-ai.componentName" (dict "root" $ "name" "carrier-keys") -}}
+{{- $hookAnn := dict "helm.sh/hook" "pre-install,pre-upgrade" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded,hook-failed" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "carrier-keys") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $ "extra" (merge (dict "helm.sh/hook-weight" "-10") $hookAnn)) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "carrier-keys") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $ "extra" (merge (dict "helm.sh/hook-weight" "-10") $hookAnn)) }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - {{ include "local-ai.carrierSecret" (dict "root" $ "role" "owner") }}
+      - {{ include "local-ai.carrierSecret" (dict "root" $ "role" "frontend") }}
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "carrier-keys") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $ "extra" (merge (dict "helm.sh/hook-weight" "-10") $hookAnn)) }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "carrier-keys") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $ "extra" (merge (dict "helm.sh/hook-weight" "-5") $hookAnn)) }}
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "local-ai.selectorLabels" (dict "root" $ "component" "carrier-keys") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $name }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- /* Scheduled like the owner, on the owner's image (set addonOwner.image.variant: "" for the CPU image). */}}
+      {{- with .Values.addonOwner.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.addonOwner.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.addonOwner.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: carrier-keys
+          image: {{ include "local-ai.image" (dict "root" $ "image" .Values.addonOwner.image) }}
+          imagePullPolicy: {{ include "local-ai.imagePullPolicy" (dict "root" $ "image" .Values.addonOwner.image) }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - |
+              set -euo pipefail
+              SA=/var/run/secrets/kubernetes.io/serviceaccount
+              API="https://kubernetes.default.svc/api/v1/namespaces/$(cat $SA/namespace)/secrets"
+              api() { curl -sS --cacert "$SA/ca.crt" -H "Authorization: Bearer $(cat $SA/token)" "$@"; }
+              exists() { [ "$(api -o /dev/null -w '%{http_code}' "$API/$1")" = 200 ]; }
+              OWNER_SECRET={{ include "local-ai.carrierSecret" (dict "root" $ "role" "owner") | squote }}
+              FRONTEND_SECRET={{ include "local-ai.carrierSecret" (dict "root" $ "role" "frontend") | squote }}
+              if exists "$OWNER_SECRET" && exists "$FRONTEND_SECRET"; then
+                echo "carrier key Secrets already exist"; exit 0
+              fi
+              if exists "$OWNER_SECRET" || exists "$FRONTEND_SECRET"; then
+                echo "only one carrier key Secret exists: delete it so both are generated from one key set" >&2; exit 1
+              fi
+              /local-ai util addons-carrier-keys --out /tmp/keys/set \
+                --owner-host {{ include "local-ai.addonOwnerHost" . | squote }} \
+                --owner-host {{ printf "%s.%s.svc" (include "local-ai.addonOwnerName" .) .Release.Namespace | squote }} \
+                --owner-host {{ include "local-ai.addonOwnerName" . | squote }}
+              # Not part of the release manifest: the annotations keep Argo CD (label tracking)
+              # from pruning them or reporting them out of sync.
+              create() {
+                local name=$1; shift
+                local data="" f
+                for f in "$@"; do data="$data\"$f\":\"$(base64 -w0 /tmp/keys/set/$f)\","; done
+                api -f -X POST -H 'Content-Type: application/json' "$API" -o /dev/null -d \
+                  "{\"apiVersion\":\"v1\",\"kind\":\"Secret\",\"type\":\"Opaque\",\"metadata\":{\"name\":\"$name\",\"labels\":{\"app.kubernetes.io/name\":\"{{ include "local-ai.name" . }}\",\"app.kubernetes.io/instance\":\"{{ .Release.Name }}\"},\"annotations\":{\"argocd.argoproj.io/compare-options\":\"IgnoreExtraneous\",\"argocd.argoproj.io/sync-options\":\"Prune=false\"}},\"data\":{${data%,}}}"
+              }
+              create "$OWNER_SECRET" ca.pem owner.pem owner.key frontend.pem frontend-sign.pub
+              create "$FRONTEND_SECRET" ca.pem owner.pem frontend.pem frontend.key frontend-sign.key
+              echo "carrier key Secrets created"
+          volumeMounts:
+            - name: keys
+              mountPath: /tmp/keys
+      volumes:
+        - name: keys
+          emptyDir:
+            medium: Memory
+{{- end }}

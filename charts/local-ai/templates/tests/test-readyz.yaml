@@ -1,0 +1,43 @@
+{{- $fe := .Values.frontend -}}
+{{- /* A distributed frontend may wait up to 5 minutes for a healthy worker before it reports ready. */}}
+{{- $tries := ternary 60 30 (eq .Values.mode "distributed") -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "local-ai.componentName" (dict "root" $ "name" "test-readyz") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "test") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $ "extra" (dict "helm.sh/hook" "test" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded")) }}
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- /* Scheduled like the frontend, on its image (curl), so it runs on clusters where every node is tainted. */}}
+  {{- with $fe.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $fe.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  containers:
+    - name: readyz
+      image: {{ include "local-ai.image" (dict "root" $ "image" $fe.image) }}
+      imagePullPolicy: {{ include "local-ai.imagePullPolicy" (dict "root" $ "image" $fe.image) }}
+      securityContext:
+        {{- include "local-ai.helperSecurityContext" . | nindent 8 }}
+      command:
+        - sh
+        - -c
+        - |
+          # /readyz is anonymous even with authentication on.
+          for i in $(seq 1 {{ $tries }}); do
+            if curl -fsS -o /dev/null --max-time 5 {{ include "local-ai.frontendUrl" . }}/readyz; then echo ready; exit 0; fi
+            sleep 10
+          done
+          echo "LocalAI did not become ready" >&2; exit 1

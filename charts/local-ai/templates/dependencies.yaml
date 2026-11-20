@@ -1,0 +1,276 @@
+{{- /* Minimal built-in PostgreSQL (with pgvector) and NATS, for trying distributed mode. */}}
+{{- if .Values.postgresql.enabled }}
+{{- $pg := .Values.postgresql -}}
+{{- $name := include "local-ai.postgresqlHost" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "postgresql") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+data:
+  # LocalAI connects as the non-superuser role localai, which owns both databases (the account
+  # database localai and the separate collections database localai_collections). The superuser is
+  # only reachable inside the pod.
+  10-localai.sh: |
+    #!/bin/sh
+    set -e
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+      -v app="$APP_USER" -v pw="$APP_PASSWORD" -v db="$POSTGRES_DB" -v coll="$COLLECTIONS_DB" <<-'EOSQL'
+      CREATE ROLE :"app" LOGIN PASSWORD :'pw';
+      ALTER DATABASE :"db" OWNER TO :"app";
+      CREATE DATABASE :"coll" OWNER :"app";
+    EOSQL
+    for db in "$POSTGRES_DB" "$COLLECTIONS_DB"; do
+      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$db" \
+        -c 'CREATE EXTENSION IF NOT EXISTS vector' -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
+    done
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "postgresql") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  selector:
+    {{- include "local-ai.selectorLabels" (dict "root" $ "component" "postgresql") | nindent 4 }}
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "postgresql") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  # The database goes with the frontends' data volume on uninstall (persistence.data.retain keeps
+  # both): LocalAI ties the two together (Files blob identity).
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: {{ ternary "Retain" "Delete" (.Values.persistence.data.retain | default false) }}
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      {{- include "local-ai.selectorLabels" (dict "root" $ "component" "postgresql") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "local-ai.selectorLabels" (dict "root" $ "component" "postgresql") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 999
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $pg.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgresql
+          image: {{ include "local-ai.plainImage" $pg.image }}
+          imagePullPolicy: {{ $pg.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          # The superuser's password is random and never stored: only initdb needs it, and the
+          # superuser then signs in over the pod's local socket.
+          command:
+            - sh
+            - -c
+            - export POSTGRES_PASSWORD="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n")"; exec docker-entrypoint.sh postgres
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_DB
+              value: localai
+            - name: COLLECTIONS_DB
+              value: localai_collections
+            - name: APP_USER
+              value: localai
+            - name: APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "local-ai.postgresqlSecret" . }}
+                  key: {{ include "local-ai.postgresqlKey" . }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 30
+            failureThreshold: 6
+          {{- with $pg.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: init
+          configMap:
+            name: {{ $name }}-init
+        {{- if not $pg.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if $pg.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml $pg.persistence.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ $pg.persistence.size | quote }}
+        {{- with $pg.persistence.storageClass }}
+        storageClassName: {{ ternary "" . (eq . "-") | quote }}
+        {{- end }}
+  {{- end }}
+{{- end }}
+{{- if .Values.nats.enabled }}
+{{- $nats := .Values.nats -}}
+{{- $name := include "local-ai.natsHost" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "nats") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  selector:
+    {{- include "local-ai.selectorLabels" (dict "root" $ "component" "nats") | nindent 4 }}
+  ports:
+    - name: client
+      port: 4222
+      targetPort: client
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "nats") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "local-ai.selectorLabels" (dict "root" $ "component" "nats") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "local-ai.selectorLabels" (dict "root" $ "component" "nats") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $nats.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $nats.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $nats.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nats
+          image: {{ include "local-ai.plainImage" $nats.image }}
+          imagePullPolicy: {{ $nats.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: NATS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "local-ai.natsSecret" . }}
+                  key: {{ include "local-ai.natsKey" . }}
+          args:
+            - --auth=$(NATS_TOKEN)
+            # Monitoring (probes) stays on the pod: the Service only publishes the client port.
+            # LocalAI v5 uses plain NATS Core messaging: no JetStream, so no state to keep.
+            - --http_port=8222
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: monitor
+              containerPort: 8222
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            periodSeconds: 30
+          {{- with $nats.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

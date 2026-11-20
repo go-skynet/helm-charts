@@ -1,0 +1,80 @@
+{{- if .Values.chatWorker.enabled }}
+{{- $cw := .Values.chatWorker -}}
+{{- $names := list "models" "backends" "data" "configuration" "generated" -}}
+{{- /* Chat workers read the same models, Files and runtime settings (configuration) as the frontends. */}}
+{{- $shared := list "models" "data" "configuration" "generated" -}}
+{{- $carrierRole := ternary "frontend" "" .Values.addonOwner.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "local-ai.componentName" (dict "root" $ "name" "chat-worker") }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "chat-worker") | nindent 4 }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $) }}
+spec:
+  replicas: {{ $cw.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "local-ai.selectorLabels" (dict "root" $ "component" "chat-worker") | nindent 6 }}
+  template:
+    {{- include "local-ai.podMetadata" (dict "root" $ "comp" $cw "component" "chat-worker" "annotations" (include "local-ai.policyChecksum" . | fromYaml)) | nindent 4 }}
+    spec:
+      {{- include "local-ai.podCommon" (dict "root" $ "comp" $cw "gracePeriod" 60) | trim | nindent 6 }}
+      {{- /* One server at a time on a fresh database (frontend, then owner, then chat workers):
+      servers that bootstrap an empty database together can hit a PostgreSQL deadlock (LocalAI
+      v5.0.0) and restart once. */}}
+      {{- $fe := gt (int .Values.frontend.replicaCount) 0 }}
+      {{- $wait := include "local-ai.waitInit" (dict "root" $ "image" $cw.image "postgres" true "nats" true "frontend" (and $fe (not .Values.addonOwner.enabled)) "owner" .Values.addonOwner.enabled) }}
+      {{- if or $carrierRole $wait $cw.initContainers }}
+      initContainers:
+        {{- with $wait }}
+        {{- . | trim | nindent 8 }}
+        {{- end }}
+        {{- if $carrierRole }}
+        {{- include "local-ai.carrierInit" (dict "root" $ "image" $cw.image) | nindent 8 }}
+        {{- end }}
+        {{- with $cw.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: local-ai
+          image: {{ include "local-ai.image" (dict "root" $ "image" $cw.image) }}
+          imagePullPolicy: {{ include "local-ai.imagePullPolicy" (dict "root" $ "image" $cw.image) }}
+          args:
+            - run
+          {{- $env := list
+                (include "local-ai.env.pod" .)
+                (include "local-ai.env.paths" (include "local-ai.frontendPaths" (dict "root" $ "names" $names) | fromYaml))
+                (include "local-ai.env.server" (dict "root" $ "role" "chat-worker"))
+                (include "local-ai.env.user" (dict "root" $ "comp" $cw)) }}
+          env:
+            {{- include "local-ai.env.dedupe" (join "\n" $env) | nindent 12 }}
+          {{- with include "local-ai.envFrom" (dict "root" $ "comp" $cw) }}{{ . | trim | nindent 10 }}{{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- with include "local-ai.probes" (include "local-ai.serverProbes" (dict "comp" $cw) | fromYaml) }}{{ . | trim | nindent 10 }}{{- end }}
+          {{- with $cw.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with include "local-ai.securityContext" (dict "root" $ "comp" $cw) }}{{ . | trim | nindent 10 }}{{- end }}
+          volumeMounts:
+            {{- include "local-ai.mountsFromPaths" (include "local-ai.frontendPaths" (dict "root" $ "names" $names) | fromYaml) | trim | nindent 12 }}
+            {{- with include "local-ai.fileMounts" (dict "root" $ "carrierRole" $carrierRole) }}{{ . | trim | nindent 12 }}{{- end }}
+            {{- with $cw.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with $cw.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      volumes:
+        {{- include "local-ai.frontendVolumes" (dict "root" $ "names" $names "shared" $shared) | trim | nindent 8 }}
+        {{- with include "local-ai.fileVolumes" (dict "root" $ "carrierRole" $carrierRole) }}{{ . | trim | nindent 8 }}{{- end }}
+        {{- with $cw.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

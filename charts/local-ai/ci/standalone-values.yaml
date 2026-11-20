@@ -1,0 +1,10 @@
+# chart-testing: standalone server with small volumes, no models.
+persistence:
+  models:
+    size: 2Gi
+  backends:
+    size: 2Gi
+  data:
+    size: 1Gi
+env:
+  LOCALAI_VRAM_WARM_LIMIT: "0"

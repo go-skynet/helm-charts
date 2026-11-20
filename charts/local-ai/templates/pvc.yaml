@@ -1,0 +1,26 @@
+{{- range $name, $p := .Values.persistence }}
+{{- if and $p.enabled (not $p.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "local-ai.componentName" (dict "root" $ "name" $name) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "local-ai.labels" (dict "root" $ "component" "frontend") | nindent 4 }}
+  {{- $ann := deepCopy ($p.annotations | default dict) }}
+  {{- if $p.retain }}
+  {{- $_ := set $ann "helm.sh/resource-policy" "keep" }}
+  {{- end }}
+  {{- include "local-ai.metaAnnotations" (dict "root" $ "extra" $ann) }}
+spec:
+  accessModes:
+    {{- toYaml $p.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ $p.size | quote }}
+  {{- if $p.storageClass }}
+  storageClassName: {{ ternary "" $p.storageClass (eq $p.storageClass "-") | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

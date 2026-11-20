@@ -1,156 +1,700 @@
-replicaCount: 1
+# LocalAI Helm chart. Documentation: https://localai.io
+#
+# The chart renders one of three topologies, picked by `mode`:
+#   standalone   one LocalAI server (the default)
+#   distributed  stateless frontends + worker pools, coordinated through PostgreSQL and NATS
+#                https://localai.io/administration/distributed-mode/
+#   p2p          peer-to-peer / federated inference over a shared token
+#                https://localai.io/administration/p2p-federated-inference/
+# Each component below is optional and can be switched on in the modes it applies to.
+mode: standalone
 
-deployment:
-  image:
-    repository: quay.io/go-skynet/local-ai
-    tag: latest    # Use the appropriate tag. E.g. for cpu only: "latest-cpu"
-  env:
-    threads: 4
-    context_size: 512
+nameOverride: ""
+fullnameOverride: ""
+# Cluster DNS domain: in-cluster URLs between components and the pod DNS names workers advertise.
+clusterDomain: cluster.local
+commonLabels: {}
+commonAnnotations: {}
 
-  # # Inject Secrets into Environment:
-  # secretEnv:
-  # - name: HF_TOKEN
-  #   valueFrom:
-  #     secretKeyRef:
-  #       name: some-secret
-  #       key: hf-token
-
-  # # Set strategy for Deployment. The default values are below
-  # strategy:
-  #   type: RollingUpdate
-  #   rollingUpdate:
-  #     maxSurge: 25%
-  #     maxUnavailable: 25%
-
-  modelsPath: "/models"
-  prompt_templates:
-    # To use cloud provided (eg AWS) image, provide it like: 1234356789.dkr.ecr.us-REGION-X.amazonaws.com/busybox
-    image: busybox
+image:
+  repository: quay.io/go-skynet/local-ai
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # Hardware variant, appended to the tag as "<tag>-<variant>". Empty is the CPU image. Must be
+  # one of the published variants (a typo only fails when the image is pulled):
+  #   gpu-nvidia-cuda-12, gpu-nvidia-cuda-13, gpu-hipblas (AMD ROCm), gpu-intel (SYCL),
+  #   gpu-vulkan, nvidia-l4t-arm64 (Jetson), nvidia-l4t-arm64-cuda-13 (DGX Spark)
+  # Every component (and every worker pool) can override repository/tag/variant; an explicit
+  # empty variant runs it on the CPU image, e.g. `image: {variant: ""}` for the add-on owner,
+  # federated server, explorer and agent worker, which need no GPU. The carrier-keys install hook
+  # runs the add-on owner's image and the `helm test` pod the frontend's: with a GPU variant, the
+  # first install or test on a node without that image pulls it within Helm's --timeout.
+  variant: ""
+  # Pins the image ("sha256:..."), appended to the tag. Applies to every component without an
+  # `image` of its own (one that sets repository, tag, variant or digest takes its own digest).
+  digest: ""
   pullPolicy: IfNotPresent
-  imagePullSecrets: []
-    # - name: secret-names
-  
-  ## Needed for GPU Nodes
-  #runtimeClassName: gpu
 
-resources:
-  {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
+imagePullSecrets: []
+
+serviceAccount:
+  create: false
+  # Defaults to the full name when create is true, "default" otherwise.
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+# ---------------------------------------------------------------------------------------------
+# Settings shared by every LocalAI process the chart runs (frontend, workers, chat workers,
+# add-on owner, agent worker, P2P components). Distributed mode requires several of them to be
+# identical on every role, so they live here once. Each component also has its own `env`.
+# ---------------------------------------------------------------------------------------------
+
+# Plain environment variables, name -> value. See `local-ai run --help` for the full list.
+env: {}
+#  LOCALAI_LOG_LEVEL: info
+#  LOCALAI_THREADS: "4"
+#  LOCALAI_CONTEXT_SIZE: "8192"
+#  LOCALAI_UPLOAD_LIMIT: "50"
+#  LOCALAI_VRAM_WARM_LIMIT: "0"        # skip remote gallery probing at startup (air-gapped)
+#  LOCALAI_COLLECTIONS_EMBEDDING_MODEL: granite-embedding-107m-multilingual
+# Environment variables in the Kubernetes EnvVar format (for valueFrom). A variable set in `env` or
+# `extraEnv` replaces the chart's own value for it.
+extraEnv: []
+# ConfigMaps/Secrets to load as variables. Kubernetes gives `env` priority: these never replace a
+# variable the chart sets (use `env`/`extraEnv` for those).
+envFrom: []
+
+# API keys required on every request (except /healthz and /readyz). They act as admin keys.
+apiKey:
+  existingSecret: ""
+  secretKey: api-key
+
+# Without an API key or user accounts, every client is an administrator, which includes running
+# code in the pod (installing backends). The chart refuses that where the API is reachable beyond
+# the cluster's Services: P2P federation (every holder of the token) and a frontend with
+# hostNetwork (every node address). Set true to deploy anyway.
+allowUnauthenticated: false
+
+# User accounts (https://localai.io/administration/authentication/). Always on in distributed mode.
+auth:
+  enabled: false
+  # Account database. Empty uses SQLite in the data volume (single process only), or the
+  # built-in PostgreSQL when `postgresql.enabled`. Distributed mode needs PostgreSQL. A `url`
+  # with a password ends up as plain text in the pod spec: prefer existingSecret.
+  database:
+    url: ""
+    existingSecret: ""
+    secretKey: url
+  # open | approval | invite (LocalAI's default is open). Whatever the mode, the first account
+  # that signs up becomes an administrator: create it before exposing LocalAI.
+  registrationMode: ""
+  # Whoever signs up with this email becomes an administrator, and local sign-up doesn't verify
+  # emails: only safe with disableLocalAuth (OIDC/GitHub accounts only).
+  adminEmail: ""
+  disableLocalAuth: false
+  # External URL of LocalAI (LOCALAI_BASE_URL); needed for OAuth/OIDC callbacks behind an ingress.
+  baseUrl: ""
+  oidc:
+    issuer: ""
+    clientId: ""
+    existingSecret: ""
+    clientSecretKey: client-secret
+  github:
+    clientId: ""
+    existingSecret: ""
+    clientSecretKey: client-secret
+  # Secret that signs sessions and API keys (LOCALAI_AUTH_HMAC_SECRET). Every server must share it,
+  # so the chart generates one (kept across upgrades and after uninstall) when auth is on.
+  # Changing it invalidates every session and user API key. Coming from an install that already
+  # had auth, put the contents of <data>/.hmac_secret into a Secret and reference it here.
+  hmacSecret:
+    existingSecret: ""
+    secretKey: hmac-secret
+
+# Knowledge collections (RAG). Several LocalAI servers (frontends, chat workers) need the postgres engine.
+collections:
+  # chromem | postgres. Empty picks postgres when a collections database is available.
+  vectorEngine: ""
+  # Must be a different database from the account database. As for auth.database, prefer
+  # existingSecret over a `url` with a password.
+  database:
+    url: ""
+    existingSecret: ""
+    secretKey: url
+
+# Private model/backend sources (https://localai.io/models/private-sources/).
+credentialsFile:
+  existingSecret: ""
+  secretKey: credentials.yaml
+# Hugging Face token for gated/private artifacts (servers and vllm workers; other workers get
+# model files from the frontend).
+hfToken:
+  existingSecret: ""
+  secretKey: token
+
+# Add-on host policy. The stock image ships /etc/localai/addons/host-policy.json; set `content`
+# to replace it (it is mounted read-only and LOCALAI_ADDON_HOST_POLICY points at it).
+addonHostPolicy:
+  content: ""
+
+# Model configuration files and prompt templates written into the models directory at startup.
+# The key is the file name (".yaml" is appended to modelsConfigs keys when missing).
+modelsConfigs: {}
+promptTemplates: {}
+
+# ---------------------------------------------------------------------------------------------
+# Pod settings. Every component (frontend, workers / workerDefaults, chatWorker, agentWorker,
+# addonOwner, federatedServer, explorer) takes the same pod keys. Its block below lists the common
+# ones: image ({repository, tag, variant, digest, pullPolicy}: what it leaves out comes from the
+# global image), env / extraEnv / envFrom (added to the global ones), resources, nodeSelector,
+# tolerations, affinity, podAnnotations, podLabels, securityContext (merged over the global one).
+# Every component also accepts:
+#   topologySpreadConstraints, priorityClassName
+#   runtimeClassName               e.g. "nvidia" on clusters that use a runtime class for GPUs
+#   terminationGracePeriodSeconds  default 60 (LocalAI drains for LOCALAI_SHUTDOWN_TIMEOUT, 20s,
+#                                  and needs up to 21s more to stop); agent worker 30; federated
+#                                  server and explorer: Kubernetes' default
+#   hostNetwork                    binds port 8080 (and P2P's libp2p ports) on the node itself: one
+#                                  such pod per node, and the API answers on every node address,
+#                                  where most CNIs apply no NetworkPolicy. The frontend needs an API
+#                                  key or auth with it (see allowUnauthenticated).
+#   shareProcessNamespace          lets the pod's pause process reap LocalAI's child processes
+#                                  (LocalAI runs as PID 1). Upstream recommends an init process for
+#                                  GPU nodes (nvidia-smi calls fail without one). Sidecars can then
+#                                  read LocalAI's environment (its secrets) through /proc.
+#   startupProbe, readinessProbe, livenessProbe
+#                                  empty uses the chart's default; a probe you set replaces it
+#                                  entirely. Frontend, chat workers and add-on owner, all with
+#                                  timeoutSeconds 5:
+#                                    startupProbe:   GET /healthz every 10s, up to 360 times (the
+#                                                    first start writes the configuration and
+#                                                    downloads preloaded models before the API answers)
+#                                    readinessProbe: GET /readyz every 10s (keeps the pod out of the
+#                                                    Service until done)
+#                                    livenessProbe:  GET /healthz every 30s, 5 failures
+#                                  Worker pools: by type (see workers). Agent worker: none.
+#                                  Federated server and explorer: TCP on the HTTP port.
+#   initContainers, sidecars       extra containers (Kubernetes container specs)
+#   extraVolumes, extraVolumeMounts
+#                                  extra pod volumes, mounted into the LocalAI container
+# ---------------------------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------------------------
+# Frontend: the `local-ai run` server (API + web UI). In standalone mode it is the whole of
+# LocalAI; in distributed mode a stateless router; in p2p mode a P2P/federated node.
+# ---------------------------------------------------------------------------------------------
+frontend:
+  # Standalone keeps state in local files: exactly one replica. Distributed mode scales.
+  replicaCount: 1
+  # Models to install and load at startup: gallery names, URLs, huggingface:// / oci:// / ollama:// refs.
+  models: []
+  # Extra arguments after `run`.
+  args: []
+  # Recreate stops the old pod first: ReadWriteOnce volumes, and a frontend that owns add-ons holds
+  # their lock in <data>/addons. With mode: distributed, ReadWriteMany volumes and an addonOwner
+  # (or replicaCount > 1), RollingUpdate is safe. Give it its rollingUpdate parameters explicitly
+  # (e.g. {type: RollingUpdate, rollingUpdate: {maxSurge: 25%, maxUnavailable: 25%}}), so a later
+  # switch back to Recreate also drops them under server-side apply (Helm 4).
+  strategy:
+    type: Recreate
+  image: {}
+  env: {}
+  extraEnv: []
+  envFrom: []
+  resources: {}
   # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
+  #   cpu: "1"
+  #   memory: 4Gi
+  # limits:
+  #   memory: 16Gi
+  #   nvidia.com/gpu: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  securityContext: {}
+  # Only rendered with more than one replica and more replicas than minAvailable (otherwise it
+  # would block node drains).
+  pdb:
+    enabled: false
+    minAvailable: 1
 
-# Model config to include
-modelsConfigs:
-  {}
-  # phi-2: |
-  #   name: phi-2
-  #   context_size: 2048
-  #   f16: true
-  #   mmap: true
-  #   trimsuffix: 
-  #   - "\n"
-  #   parameters:
-  #     model: phi-2.Q8_0.gguf
-  #     temperature: 0.2
-  #     top_k: 40
-  #     top_p: 0.95
-  #     seed: -1
-  #   template:
-  #     chat: &template |-
-  #       Instruct: {{.Input}}
-  #       Output:
-  #     completion: *template
-
-# Prompt templates to include
-# Note: the keys of this map will be the names of the prompt template files
-promptTemplates:
-  {}
-  # ggml-gpt4all-j.tmpl: |
-  #   The prompt below is a question to answer, a task to complete, or a conversation to respond to; decide which and write an appropriate response.
-  #   ### Prompt:
-  #   {{.Input}}
-  #   ### Response:
-
-initContainers: []
-# Example:
-# - name: my-init-container
-#   image: my-init-image
-#   imagePullPolicy: IfNotPresent
-#   command: ["/bin/sh", "-c", "echo init"]
-#   volumeMounts:
-#     - name: my-volume
-#       mountPath: /path/to/mount
-
-sidecarContainers: []
-# Example:
-# - name: my-sidecar-container
-#   image: my-sidecar-image
-#   imagePullPolicy: IfNotPresent
-#   ports:
-#     - containerPort: 1234
-
-# Persistent storage for models and prompt templates.
-# PVC and HostPath are mutually exclusive. If both are enabled,
-# PVC configuration takes precedence. If neither are enabled, ephemeral
-# storage is used.
+# Volumes of the frontend. A disabled volume is an emptyDir (lost on restart): e.g. settings changed
+# in the web UI live in `configuration`. In distributed mode the data volume belongs with the account
+# database (LocalAI checks that the Files blob folder is the one the database knows): with an
+# external database, set data.retain (or use an existingClaim) so a reinstall finds both.
+# Chat workers mount the frontend's models, data, configuration and generated claims, the add-on
+# owner its models and configuration claims (and <data>/chats/blobs without S3), and generic
+# workers its models claim with distributed.sharedModels: with more than one pod sharing a claim
+# use ReadWriteMany storage, or every pod must run on the same node.
 persistence:
-  models: 
+  models:
     enabled: true
-    annotations: {}
-    storageClass: "" # Use default storage class
+    mountPath: /models
+    size: 50Gi
     accessModes:
-      - ReadWriteMany
+      - ReadWriteOnce
+    # "" = cluster default, "-" = no dynamic provisioning.
+    storageClass: ""
+    existingClaim: ""
+    annotations: {}
+    # Keep the claim when the release is uninstalled.
+    retain: false
+  backends:
+    enabled: true
+    mountPath: /backends
+    size: 20Gi
+    accessModes:
+      - ReadWriteOnce
+    storageClass: ""
+    existingClaim: ""
+    annotations: {}
+    retain: false
+  data:
+    enabled: true
+    mountPath: /data
     size: 10Gi
-    globalMount: /models
-  output:
-    enabled: true
-    annotations: {}
-    storageClass: "" # Use default storage class
     accessModes:
-      - ReadWriteMany
-    size: 5Gi
-    globalMount: /tmp/generated
+      - ReadWriteOnce
+    storageClass: ""
+    existingClaim: ""
+    annotations: {}
+    retain: false
+  configuration:
+    enabled: false
+    mountPath: /configuration
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+    storageClass: ""
+    existingClaim: ""
+    annotations: {}
+    retain: false
+  generated:
+    enabled: false
+    mountPath: /tmp/generated
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+    storageClass: ""
+    existingClaim: ""
+    annotations: {}
+    retain: false
+
+# The image starts as root, hands the volumes to uid 10001 and drops to it. fsGroup keeps the
+# volumes writable on any storage class. Applies to every LocalAI pod.
+podSecurityContext:
+  fsGroup: 10001
+  fsGroupChangePolicy: OnRootMismatch
+# Every LocalAI container. The entrypoint needs these capabilities to hand the volumes to uid 10001
+# (chown) and switch to it (setuid/setgid), then runs with none. Each component's own
+# `securityContext` is merged over this one.
+# For Pod Security "restricted", the volumes must already be writable by 10001, and
+# modelsConfigs/promptTemplates must stay empty (copying them needs a root init container):
+#   securityContext:
+#     runAsUser: 10001
+#     runAsGroup: 10001
+#     runAsNonRoot: true
+#     capabilities:
+#       add: []
+securityContext:
+  allowPrivilegeEscalation: false
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop:
+      - ALL
+    add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
 
 service:
   type: ClusterIP
-  # If deferring to an internal only load balancer
-  # externalTrafficPolicy: Local
-  port: 80
-  nodePort:
+  port: 8080
+  nodePort: null
   annotations: {}
-  # If using an AWS load balancer, you'll need to override the default 60s load balancer idle timeout
-  # service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "1200"
+  externalTrafficPolicy: ""
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  # ClientIP gives sticky sessions (motion capture sessions, realtime) across frontends.
+  sessionAffinity: ""
 
 ingress:
   enabled: false
   className: ""
-  annotations:
-    {}
-    # nginx.ingress.kubernetes.io/proxy-body-size: "25m" # This value determines the maxmimum uploadable file size
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
+  # LocalAI streams (SSE, WebSockets) and accepts large uploads, e.g. for ingress-nginx:
+  #   nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  #   nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  #   nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  #   nginx.ingress.kubernetes.io/proxy-buffering: "off"
+  # Also set LOCALAI_TRUSTED_PROXIES in frontend.env to the ingress controller's address range.
+  annotations: {}
   hosts:
-    - host: chart-example.local
+    - host: local-ai.example.com
       paths:
         - path: /
-          pathType: ImplementationSpecific
+          pathType: Prefix
   tls: []
-  #  - secretName: chart-example-tls
-  #    hosts:
-  #      - chart-example.local
 
-nodeSelector: {}
+# ---------------------------------------------------------------------------------------------
+# Distributed mode (mode: distributed)
+# ---------------------------------------------------------------------------------------------
+distributed:
+  nats:
+    # e.g. nats://nats:4222. Empty uses the built-in NATS (`nats.enabled`). With credentials in
+    # it, use existingSecret instead (a `url` is plain text in the pod spec).
+    url: ""
+    existingSecret: ""
+    secretKey: url
+    # NATS JWT auth for an external server (https://localai.io/administration/distributed-mode/):
+    # a Secret with all three keys account-seed (servers mint per-node credentials), service-jwt
+    # and service-seed. LocalAI refuses to start when one is missing and requireAuth is on.
+    auth:
+      existingSecret: ""
+    # Refuse to connect to NATS without JWT credentials. Defaults to on when auth.existingSecret
+    # is set (the built-in NATS is anonymous).
+    requireAuth: null
+    # NATS TLS for an external server (the built-in one has none): a Secret with ca.crt, plus
+    # tls.crt / tls.key for mutual TLS (clientAuth). LocalAI then always connects with TLS.
+    tls:
+      existingSecret: ""
+      clientAuth: false
+  # Token workers present to the frontend (also guards the workers' file-transfer server, which
+  # the chart never lets start without it). Generated (and kept across upgrades) when empty;
+  # a value needs 32 or more characters. It is a cluster-wide credential: whoever holds it can
+  # register a node (or take over an existing node's name) and read or write every worker's
+  # files. Every worker and server has it in its environment, and so do the backends they run.
+  registrationToken:
+    value: ""
+    existingSecret: ""
+    secretKey: token
+  # Approve every node that presents the registration token without an admin click. Turning it
+  # off doesn't protect against a token holder (LocalAI v5.0.0 lets a node re-register under an
+  # approved node's name); it only makes an admin approve new names.
+  autoApproveNodes: true
+  # Generic workers mount the frontends' models claim at the same path, so model files are not
+  # copied to them (needs ReadWriteMany storage or an existing claim for persistence.models).
+  sharedModels: false
+  # Optional S3 storage: model file transfer and chat Files across frontends.
+  storage:
+    url: ""
+    bucket: localai
+    region: us-east-1
+    existingSecret: ""
+    accessKeyKey: access-key
+    secretKeyKey: secret-key
 
-tolerations: []
+# Worker pools. Each pool is a StatefulSet with a headless Service, so every worker has a stable,
+# routable name. Types:
+#   generic            `local-ai worker`: registers to the frontend, runs any backend (distributed)
+#   llama-cpp-rpc      llama.cpp rpc-server; the frontend gets LLAMACPP_GRPC_SERVERS (any mode)
+#   p2p-llama-cpp-rpc  llama.cpp worker joining the P2P network (p2p mode)
+#   vllm               vLLM data-parallel follower (`args`: the model; VLLM_* settings in `env`).
+#                      One pool per data-parallel rank (replicaCount: 1).
+#   ds4-distributed    ds4 layer-split worker (`args`: ds4-worker arguments)
+# For llama-cpp-rpc, p2p-llama-cpp-rpc and ds4-distributed, `args` are passed to the server
+# (--llama-cpp-args / --ds4-args). Volumes per type: generic models/backends/data, rpc types
+# backends only, vllm and ds4 models/backends (put model files or the HF cache on models).
+# Default probes: generic workers GET /healthz (startup, up to 10 minutes; a generic worker answers
+# only once approved: with autoApproveNodes off its startup probe waits up to 24h), /readyz and
+# /healthz; llama-cpp-rpc TCP on the rpc port; the other types none.
+# Each pool also accepts every pod key (see "Pod settings" above).
+workers: []
+# - name: cpu
+#   type: generic
+#   replicaCount: 1
+#   grpcPort: 50051            # base port; the HTTP file-transfer port is grpcPort - 1
+#   grpcMaxPort: 50070         # backends get ports from grpcPort to this (caps concurrent models;
+#                              # must not be below grpcPort)
+#   rpcPort: 50052             # llama-cpp-rpc only
+#   args: []
+#   image: {}                  # e.g. {variant: gpu-nvidia-cuda-12}
+#   env: {}                    # e.g. LOCALAI_NODE_LABELS: "tier=gpu" (LocalAI scheduling labels that
+#                              # model rules match, not Kubernetes node labels: see nodeSelector),
+#                              # LOCALAI_VRAM_BUDGET: "80%", LOCALAI_MAX_REPLICAS_PER_MODEL: "2"
+#   extraEnv: []
+#   envFrom: []
+#   resources: {}              # e.g. limits: {nvidia.com/gpu: 1}
+#   nodeSelector: {}
+#   tolerations: []
+#   affinity: {}
+#   podAnnotations: {}
+#   podLabels: {}
+#   securityContext: {}
+#   persistence:               # per-worker volumes (volumeClaimTemplates)
+#     models:
+#       enabled: true
+#       size: 50Gi
+#     backends:
+#       enabled: true
+#       size: 20Gi
+#     data:
+#       enabled: true
+#       size: 5Gi
 
-affinity: {}
+# Defaults merged into every worker pool (any pool key, e.g. GPU tolerations). Maps merge (a
+# pool's env adds to these), lists replace (a pool's tolerations replace these).
+workerDefaults:
+  replicaCount: 1
+  grpcPort: 50051
+  grpcMaxPort: 50070
+  rpcPort: 50052
+  # Generic workers (local-ai worker) keep data/, staging/ and cache/ next to the models directory
+  # (/data, /staging, /cache for the default /models): data.mountPath is ignored for them, and
+  # staging/cache are emptyDirs. Persistence settings are immutable once a pool exists (they are
+  # volumeClaimTemplates): to change them, delete the StatefulSet with --cascade=orphan first; the
+  # existing claims stay as they are (grow one by editing its storage request, if the storage
+  # class allows expansion). Worker claims are kept on uninstall: delete them with
+  # `kubectl delete pvc -l app.kubernetes.io/instance=<release>,app.kubernetes.io/component=worker-<pool>`.
+  persistence:
+    models:
+      enabled: true
+      mountPath: /models
+      size: 50Gi
+      accessModes:
+        - ReadWriteOnce
+      storageClass: ""
+    backends:
+      enabled: true
+      mountPath: /backends
+      size: 20Gi
+      accessModes:
+        - ReadWriteOnce
+      storageClass: ""
+    data:
+      enabled: true
+      mountPath: /data
+      size: 5Gi
+      accessModes:
+        - ReadWriteOnce
+      storageClass: ""
 
+# Chat workers run unattended chat turns (triggers, agent jobs, connector messages) instead of the
+# frontends. They take the frontend's settings and its models, data, configuration (runtime
+# settings) and generated volumes. Without an addonOwner they have no add-on tools.
+chatWorker:
+  enabled: false
+  replicaCount: 1
+  image: {}
+  # e.g. LOCALAI_CHAT_WORKER_MAX_TURNS: "32" (concurrent turns per chat worker, 0 = no limit)
+  env: {}
+  extraEnv: []
+  envFrom: []
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  securityContext: {}
 
+# The agent worker serves MCP tool calls over NATS. It holds the MCP connections, so OAuth2
+# secrets of MCP servers (client_secret_env) belong in its env. stdio MCP servers that use
+# `docker run` need a Docker CLI and daemon (e.g. a dind sidecar and a custom image).
+agentWorker:
+  enabled: false
+  replicaCount: 1
+  image: {}
+  env: {}
+  extraEnv: []
+  envFrom: []
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  securityContext: {}
+
+# A dedicated add-on owner: the single process that installs and runs add-ons for all frontends
+# (https://localai.io/addons/contract-reference/owner/). Use it with more than one frontend; the
+# frontends and chat workers then forward add-on requests to it over a mutual-TLS carrier.
+# Without it, distributed deployments with several frontends turn add-ons off.
+# Its add-on state is on its own volume (persistence below). Without S3 (distributed.storage) it
+# also mounts <data>/chats/blobs from the frontends' data volume, since Files must be shared.
+addonOwner:
+  enabled: false
+  # Carrier keys: two Secrets with the owner's and the frontends' files. When empty, a pre-install
+  # Job generates them once with `local-ai util addons-carrier-keys`.
+  carrierKeys:
+    ownerSecret: ""
+    frontendSecret: ""
+  image: {}
+  env: {}
+  extraEnv: []
+  envFrom: []
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  # The Sandbox add-on needs no capabilities, and either
+  # /dev/kvm (request it through your device plugin) or gVisor, which needs user namespaces. For
+  # gVisor, allow them with a Localhost seccomp profile (and, on Ubuntu 24.04+ nodes, an AppArmor
+  # profile), or on a node pool dedicated to the owner:
+  #   securityContext:
+  #     seccompProfile:
+  #       type: Unconfined
+  #     appArmorProfile:
+  #       type: Unconfined
+  # (appArmorProfile needs Kubernetes 1.30 or later). Unconfined applies to the whole owner
+  # container, which holds the database and carrier credentials, and fails Pod Security "baseline".
+  # In standalone mode the sandbox runs on the frontend: use frontend.securityContext.
+  securityContext: {}
+  # The owner's own data volume (add-on state). Must be a local-semantics ReadWriteOnce volume. On
+  # uninstall it is deleted with the built-in PostgreSQL, and kept with an external database or
+  # persistence.data.retain.
+  persistence:
+    size: 10Gi
+    accessModes:
+      - ReadWriteOnce
+    storageClass: ""
+    mountPath: /data
+
+# ---------------------------------------------------------------------------------------------
+# P2P / federated mode (mode: p2p)
+# ---------------------------------------------------------------------------------------------
+# P2P settings shared by every P2P process go in the global `env`: LOCALAI_P2P_NETWORK_ID, and
+# LOCALAI_P2P_DISABLE_DHT: "true" for local discovery only (mDNS, which needs multicast between
+# pods, e.g. hostNetwork); otherwise peers rendezvous through the public DHT (internet egress).
+# Peers outside the cluster dial the pods' libp2p ports (random by default): give the P2P pods
+# hostNetwork so they listen on node addresses. LOCALAI_P2P_LISTEN_MADDRS /
+# LOCALAI_P2P_DHT_ANNOUNCE_MADDRS only help with an address per pod (a component's extraEnv,
+# e.g. from status.hostIP) and a route to it; without internet also set
+# LOCALAI_P2P_BOOTSTRAP_PEERS_MADDRS. networkPolicy blocks inbound libp2p from outside the release.
+p2p:
+  # The shared network token. Generated (and kept across upgrades) when empty.
+  token:
+    value: ""
+    existingSecret: ""
+    secretKey: token
+  # Frontend joins as a federated node (shares requests with other instances).
+  federated: false
+
+# Federated load balancer (`local-ai federated`): spreads requests over the federated nodes
+# (in-cluster, the frontend joins only with p2p.federated: true). Its TCP probes are forwarded to a
+# federated node like any connection.
+federatedServer:
+  enabled: false
+  replicaCount: 1
+  image: {}
+  # e.g. LOCALAI_RANDOM_WORKER: "true", LOCALAI_TARGET_WORKER: <node>
+  env: {}
+  extraEnv: []
+  envFrom: []
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  securityContext: {}
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+
+# P2P network explorer (`local-ai explorer`): lists the networks whose tokens users submit.
+explorer:
+  # It has no authentication and shows every submitted token to every visitor: don't submit a
+  # token that should stay private.
+  enabled: false
+  # Discover the workers of the submitted networks (LOCALAI_WITH_SYNC); without it nothing is listed.
+  sync: true
+  image: {}
+  env: {}
+  extraEnv: []
+  envFrom: []
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+  securityContext: {}
+  persistence:
+    enabled: true
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+    storageClass: ""
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+
+# ---------------------------------------------------------------------------------------------
+# Built-in dependencies, for trying distributed mode. Use managed/external services in production.
+# ---------------------------------------------------------------------------------------------
+postgresql:
+  enabled: false
+  image:
+    repository: pgvector/pgvector
+    tag: 0.8.7-pg18
+    digest: ""
+    pullPolicy: IfNotPresent
+  # LocalAI signs in as the role `localai` to the databases `localai` (accounts) and
+  # `localai_collections`. Its password is generated and kept across upgrades, or taken from this
+  # Secret (letters, digits and . _ ~ - only: it goes into a connection URL). The built-in
+  # PostgreSQL keeps its data (and the password) on uninstall only with persistence.data.retain,
+  # since LocalAI ties the database to the data volume.
+  existingSecret: ""
+  secretKey: password
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  persistence:
+    enabled: true
+    size: 8Gi
+    accessModes:
+      - ReadWriteOnce
+    storageClass: ""
+
+nats:
+  enabled: false
+  image:
+    repository: nats
+    tag: 2.15.3-alpine
+    digest: ""
+    pullPolicy: IfNotPresent
+  # Clients authenticate with a token: generated and kept across upgrades, or taken from this Secret
+  # (letters, digits and . _ ~ - only: it goes into the connection URL). Anyone who can publish on
+  # this NATS can run code on the agent worker and on generic workers. LocalAI v5 uses plain NATS
+  # messaging (no JetStream), so it keeps no state.
+  existingSecret: ""
+  secretKey: token
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ---------------------------------------------------------------------------------------------
+# Operations
+# ---------------------------------------------------------------------------------------------
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}
+  # /metrics needs credentials when auth or API keys are on: {name, key} of a Secret with a key.
+  # LocalAI only serves /metrics to administrators, so this must be an admin API key (use a
+  # dedicated, revocable one), sent over plain HTTP inside the cluster.
+  bearerTokenSecret: {}
+
+# Restrict inbound traffic (there is no egress policy): workers, the add-on owner carrier and the
+# built-in databases only accept connections from this release's pods. Pods with hostNetwork send from node
+# addresses, which (depending on the CNI) these policies then block; in p2p mode, peers outside
+# the release can't dial in.
+networkPolicy:
+  enabled: false
+  # Even with `enabled: false`, the built-in NATS and PostgreSQL and the llama-cpp-rpc, vllm and
+  # ds4-distributed pools (unauthenticated protocols) only accept this release's pods.
+  backplane: true
+  # Who may reach the frontend Service port (empty = anyone).
+  frontendIngressFrom: []

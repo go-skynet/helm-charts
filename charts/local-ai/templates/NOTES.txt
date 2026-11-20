@@ -1,0 +1,58 @@
+LocalAI {{ .Chart.AppVersion }} is installed in {{ .Values.mode }} mode (release {{ .Release.Name }}).
+
+Reach the API and web UI:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "local-ai.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://localhost:8080/readyz
+{{- if .Values.ingress.enabled }}
+{{- $tlsHosts := list }}
+{{- range .Values.ingress.tls }}{{ $tlsHosts = concat $tlsHosts (.hosts | default list) }}{{ end }}
+  or through the ingress:
+{{- range .Values.ingress.hosts }}
+{{- $h := . }}
+{{- range ($h.paths | default (list (dict "path" "/"))) }}
+    {{ ternary "https" "http" (has $h.host $tlsHosts) }}://{{ $h.host }}{{ .path }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+The first start can take a while: LocalAI writes its configuration and downloads any preloaded
+models before /readyz answers. Backends are downloaded the first time a model needs them.
+{{- if not (include "local-ai.apiProtected" .) }}
+
+WARNING: authentication is off. Anyone who can reach the service (any pod in the cluster) is an
+  administrator, which includes running code in the pod (installing backends).
+  Set apiKey.existingSecret or auth.enabled=true before exposing it.
+{{- end }}
+{{- if include "local-ai.authEnabled" . }}
+
+The first account that signs up becomes an administrator, whatever auth.registrationMode says:
+  create yours now, through the port-forward above, before exposing the service.
+{{- if and .Values.auth.adminEmail (not .Values.auth.disableLocalAuth) }}
+  WARNING: auth.adminEmail with local sign-up on: anyone who registers a local account with that
+  email (emails aren't verified) becomes an administrator. Set auth.disableLocalAuth=true.
+{{- end }}
+{{- end }}
+{{- $readme := "https://github.com/go-skynet/helm-charts/tree/main/charts/local-ai#" }}
+{{- if eq .Values.mode "distributed" }}
+
+Distributed mode: {{ .Values.frontend.replicaCount }} frontend(s),
+{{- with .Values.workers }} worker pools: {{ range $i, $w := . }}{{ if $i }}, {{ end }}{{ $w.name }}{{ end }}.
+{{- else }} no worker pools yet (`workers`): models have nowhere to run.
+{{- end }}
+  Workers register with the token in Secret {{ include "local-ai.registrationTokenSecret" . }}.
+  A frontend reports ready only once a worker is healthy, or after 5 minutes without one.
+  Chat workers, the add-on owner and shared-models workers mount the frontends' volumes: use
+  ReadWriteMany storage when those pods run on several nodes.
+  See {{ $readme }}distributed
+{{- else if eq .Values.mode "p2p" }}
+
+P2P mode: every node joins the network with the token in Secret {{ include "local-ai.p2pTokenSecret" . }}:
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "local-ai.p2pTokenSecret" . }} -o jsonpath='{.data.{{ include "local-ai.p2pTokenKey" . }}}' | base64 -d
+{{- if .Values.federatedServer.enabled }}
+  Federated endpoint: svc/{{ include "local-ai.componentName" (dict "root" $ "name" "federated") }}:{{ .Values.federatedServer.service.port }}
+{{- end }}
+{{- if .Values.explorer.enabled }}
+  Explorer: svc/{{ include "local-ai.componentName" (dict "root" $ "name" "explorer") }}:{{ .Values.explorer.service.port }}
+{{- end }}
+  See {{ $readme }}p2p--federated
+{{- end }}
