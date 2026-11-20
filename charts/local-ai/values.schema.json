@@ -2169,6 +2169,9 @@
     "global": {
       "type": "object"
     },
+    "enabled": {
+      "type": "boolean"
+    },
     "replicaCount": {
       "description": "chart 3.x value, replaced in 4.0: see \"Upgrading from 3.x\" in the chart README"
     },

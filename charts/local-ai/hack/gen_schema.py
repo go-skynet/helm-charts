@@ -193,6 +193,8 @@ VALUES = strict_object({
     # Helm passes `global` to every chart used as a dependency (even an empty one): without it a
     # parent chart can't render this one.
     "global": ANY_OBJECT,
+    # Read by a parent chart's `condition: local-ai.enabled`, which Helm also passes down.
+    "enabled": BOOLEAN,
     **{key: LEGACY for key in ("replicaCount", "deployment", "resources", "initContainers", "sidecarContainers",
                                "nodeSelector", "tolerations", "affinity")},
 })
